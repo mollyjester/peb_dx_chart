@@ -297,9 +297,11 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range) {
 /**
  * Draw numerical labels at the extremum (min / max) glucose points.
  *
- * A small label showing the BG value is placed next to the data point.
- * Labels are offset horizontally so they don't overlap the line.
- * Both min and max are always labeled, even if they are at the same index.
+ * Labels are placed on the "empty" side of the chart relative to the data
+ * point: the min label toward lower values, the max label toward higher
+ * values.  A white background rectangle is drawn behind each label so text
+ * stays readable when it overlaps grid lines or the glucose curve.
+ * When the two labels are close together vertically they are pushed apart.
  */
 static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     if (s_reading_count < 1) return;
@@ -333,49 +335,109 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     }
 
     GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14);
-    graphics_context_set_text_color(ctx, GColorBlack);
 
     int label_w = 30;
     int label_h = 16;
+    int label_pad = 1;  /* padding inside the background rect */
     int left = chart_left();
+    int right_edge = left + CHART_WIDTH;
 
-    /* --- minimum --- */
-    {
-        int px = clamp_x(bg_to_x(min_val, min_bg, bg_range));
-        int py = index_to_y(min_idx);
-        int lx = (px + label_w + 4 > left + CHART_WIDTH)
-                     ? px - label_w - 4
-                     : px + 4;
-        int ly = py - label_h / 2;
-        /* Clamp vertically */
-        if (ly < 0) ly = 0;
-        if (ly + label_h > CHART_START_Y + CHART_HEIGHT) ly = CHART_START_Y + CHART_HEIGHT - label_h;
-        graphics_draw_text(ctx, min_label, font,
-                           GRect(lx, ly, label_w, label_h),
-                           GTextOverflowModeTrailingEllipsis,
-                           GTextAlignmentLeft, NULL);
+    /* --- helper: compute label x so label sits on the empty side --- */
+    /* For the minimum value the empty space is toward lower BG values;
+       for the maximum it is toward higher BG values.
+       In normal (non-inverted) mode lower BG maps to left, higher to right.
+       In inverted mode the mapping is reversed. */
+    #define OFFSET 4  /* gap between data point and label edge */
+
+    /* --- minimum label position --- */
+    int min_px = clamp_x(bg_to_x(min_val, min_bg, bg_range));
+    int min_py = index_to_y(min_idx);
+    int min_lx, min_ly;
+
+    /* Place min label toward lower-value side (away from chart data) */
+    if (s_invert_y) {
+        /* inverted: lower values are to the right */
+        min_lx = min_px + OFFSET;
+        if (min_lx + label_w > right_edge) min_lx = min_px - label_w - OFFSET;
+    } else {
+        /* normal: lower values are to the left */
+        min_lx = min_px - label_w - OFFSET;
+        if (min_lx < left) min_lx = min_px + OFFSET;
     }
+    min_ly = min_py - label_h / 2;
 
-    /* --- maximum (always draw, offset if same index as minimum) --- */
+    /* --- maximum label position --- */
+    int max_px = clamp_x(bg_to_x(max_val, min_bg, bg_range));
+    int max_py = index_to_y(max_idx);
+    int max_lx, max_ly;
+
+    /* Place max label toward higher-value side (away from chart data) */
+    if (s_invert_y) {
+        /* inverted: higher values are to the left */
+        max_lx = max_px - label_w - OFFSET;
+        if (max_lx < left) max_lx = max_px + OFFSET;
+    } else {
+        /* normal: higher values are to the right */
+        max_lx = max_px + OFFSET;
+        if (max_lx + label_w > right_edge) max_lx = max_px - label_w - OFFSET;
+    }
+    max_ly = max_py - label_h / 2;
+
+    #undef OFFSET
+
+    /* --- push labels apart when they overlap vertically --- */
     {
-        int px = clamp_x(bg_to_x(max_val, min_bg, bg_range));
-        int py = index_to_y(max_idx);
-        int lx = (px + label_w + 4 > left + CHART_WIDTH)
-                     ? px - label_w - 4
-                     : px + 4;
-        int ly = py - label_h / 2;
-        /* If same index as min, offset the max label upward to avoid overlap */
-        if (max_idx == min_idx) {
-            ly = py - label_h - 2;
+        int min_top = min_ly;
+        int min_bot = min_ly + label_h;
+        int max_top = max_ly;
+        int max_bot = max_ly + label_h;
+
+        /* Check if the label rectangles overlap vertically */
+        if (min_top < max_bot && max_top < min_bot) {
+            int overlap = (min_bot < max_bot ? min_bot - max_top : max_bot - min_top);
+            int half = (overlap + 1) / 2;
+
+            /* Push the label whose data point is higher on screen upward,
+               and the other one downward */
+            if (min_py < max_py) {
+                min_ly -= half;
+                max_ly += half;
+            } else {
+                max_ly -= half;
+                min_ly += half;
+            }
         }
-        /* Clamp vertically */
-        if (ly < 0) ly = 0;
-        if (ly + label_h > CHART_START_Y + CHART_HEIGHT) ly = CHART_START_Y + CHART_HEIGHT - label_h;
-        graphics_draw_text(ctx, max_label, font,
-                           GRect(lx, ly, label_w, label_h),
-                           GTextOverflowModeTrailingEllipsis,
-                           GTextAlignmentLeft, NULL);
     }
+
+    /* Clamp both labels to the chart area */
+    if (min_ly < 0) min_ly = 0;
+    if (min_ly + label_h > CHART_START_Y + CHART_HEIGHT)
+        min_ly = CHART_START_Y + CHART_HEIGHT - label_h;
+    if (max_ly < 0) max_ly = 0;
+    if (max_ly + label_h > CHART_START_Y + CHART_HEIGHT)
+        max_ly = CHART_START_Y + CHART_HEIGHT - label_h;
+
+    /* --- draw minimum label with white background --- */
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx,
+        GRect(min_lx - label_pad, min_ly, label_w + 2 * label_pad, label_h),
+        0, GCornerNone);
+    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_draw_text(ctx, min_label, font,
+                       GRect(min_lx, min_ly, label_w, label_h),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+
+    /* --- draw maximum label with white background --- */
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx,
+        GRect(max_lx - label_pad, max_ly, label_w + 2 * label_pad, label_h),
+        0, GCornerNone);
+    graphics_context_set_text_color(ctx, GColorBlack);
+    graphics_draw_text(ctx, max_label, font,
+                       GRect(max_lx, max_ly, label_w, label_h),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
 }
 
 /**
