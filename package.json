@@ -36,7 +36,8 @@
       "BG_VALUE",
       "BG_TIMESTAMP",
       "BG_INDEX",
-      "BG_CHUNK"
+      "BG_CHUNK",
+      "INVERT_Y"
     ],
     "resources": {
       "media": []

@@ -47,6 +47,7 @@ static int  s_expected_count  = 0;
 static int  s_received_count  = 0;
 static bool s_receiving_data  = false;
 static bool s_is_mmol         = false;
+static bool s_invert_y        = false;
 static char s_bg_units[10]    = "mg/dL";
 static char s_status_text[32] = "Loading...";
 
@@ -65,6 +66,9 @@ static int bg_to_x(int bg_value, int min_bg, int bg_range) {
 
 /** Map a reading index to a y-pixel coordinate (index 0 = bottom / newest). */
 static int index_to_y(int index) {
+    if (s_invert_y) {
+        return CHART_START_Y + (index * TIME_SPACING);
+    }
     return CHART_START_Y + CHART_HEIGHT - (index * TIME_SPACING);
 }
 
@@ -454,11 +458,16 @@ static void inbox_received_callback(DictionaryIterator *iterator,
     Tuple *chunk_tuple     = dict_find(iterator, MESSAGE_KEY_BG_CHUNK);
     Tuple *value_tuple     = dict_find(iterator, MESSAGE_KEY_BG_VALUE);
     Tuple *timestamp_tuple = dict_find(iterator, MESSAGE_KEY_BG_TIMESTAMP);
+    Tuple *invert_tuple    = dict_find(iterator, MESSAGE_KEY_INVERT_Y);
 
     if (units_tuple) {
         snprintf(s_bg_units, sizeof(s_bg_units), "%s",
                  units_tuple->value->cstring);
         s_is_mmol = (strcmp(s_bg_units, "mmol/L") == 0);
+    }
+
+    if (invert_tuple) {
+        s_invert_y = (invert_tuple->value->int32 != 0);
     }
 
     if (count_tuple) {

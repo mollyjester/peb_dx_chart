@@ -76,6 +76,13 @@
             "value": "mmol/L"
           }
         ]
+      },
+      {
+        "type": "toggle",
+        "messageKey": "INVERT_Y",
+        "label": "Worn on Other Wrist",
+        "description": "Invert the Y axis for wearing the watch on the other wrist",
+        "defaultValue": false
       }
     ]
   },
