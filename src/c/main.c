@@ -2,12 +2,13 @@
 
 // Configuration
 #define MAX_READINGS 36
-#define CHART_START_X 0
-#define CHART_START_Y 0
-#define CHART_WIDTH 144
-#define CHART_HEIGHT 168
-#define VALUE_SCALE 2  // pixels per mg/dL (or per 0.1 mmol/L)
-#define TIME_SCALE 4   // pixels per 5-minute interval
+#define CHART_START_X 30    // Leave space for time labels
+#define CHART_START_Y 10    // Leave space for value labels at top
+#define CHART_WIDTH 114     // 144 - 30
+#define CHART_HEIGHT 148    // 168 - 20 (status bar)
+#define MIN_VALUE 40        // Minimum BG value to display (mg/dL)
+#define MAX_VALUE 400       // Maximum BG value to display (mg/dL)
+#define TIME_SPACING 4      // Pixels between readings vertically
 
 // Message buffer sizes
 #define APPMESSAGE_INBOX 256
@@ -38,75 +39,109 @@ static void request_data(void);
  */
 static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     if (s_reading_count == 0) {
+        // Draw "No data" message
+        graphics_context_set_text_color(ctx, GColorWhite);
+        graphics_draw_text(ctx, "No data\nOpen settings\non phone", 
+                          fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                          GRect(0, 50, 144, 70),
+                          GTextOverflowModeWordWrap,
+                          GTextAlignmentCenter,
+                          NULL);
         return;
     }
     
     GRect bounds = layer_get_bounds(layer);
     
-    // Draw grid lines
+    // Calculate scaling
+    int min_bg = strcmp(s_bg_units, "mmol/L") == 0 ? 20 : MIN_VALUE; // 2.0 mmol/L or 40 mg/dL
+    int max_bg = strcmp(s_bg_units, "mmol/L") == 0 ? 220 : MAX_VALUE; // 22.0 mmol/L or 400 mg/dL
+    int bg_range = max_bg - min_bg;
+    
+    // Draw background grid
     graphics_context_set_stroke_color(ctx, GColorDarkGray);
     
-    // Horizontal grid lines (every 50 mg/dL or ~3 mmol/L)
-    for (int i = 0; i <= 400; i += 50) {
-        int x = i * VALUE_SCALE;
-        if (x < CHART_WIDTH) {
-            graphics_draw_line(ctx, GPoint(x, 0), GPoint(x, CHART_HEIGHT));
+    // Vertical grid lines (every 50 mg/dL or 3 mmol/L)
+    int grid_step = strcmp(s_bg_units, "mmol/L") == 0 ? 30 : 50; // 3.0 mmol/L or 50 mg/dL
+    for (int bg = min_bg; bg <= max_bg; bg += grid_step) {
+        int x = CHART_START_X + ((bg - min_bg) * CHART_WIDTH) / bg_range;
+        graphics_draw_line(ctx, GPoint(x, CHART_START_Y), GPoint(x, CHART_START_Y + CHART_HEIGHT));
+        
+        // Draw value labels at top
+        static char label[8];
+        if (strcmp(s_bg_units, "mmol/L") == 0) {
+            snprintf(label, sizeof(label), "%.0f", bg / 10.0);
+        } else {
+            snprintf(label, sizeof(label), "%d", bg / 10);
+        }
+        graphics_context_set_text_color(ctx, GColorWhite);
+        graphics_draw_text(ctx, label,
+                          fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                          GRect(x - 10, 0, 20, 14),
+                          GTextOverflowModeTrailingEllipsis,
+                          GTextAlignmentCenter,
+                          NULL);
+    }
+    
+    // Horizontal grid lines (every 6 readings = 30 minutes)
+    for (int i = 0; i <= s_reading_count; i += 6) {
+        int y = CHART_START_Y + i * TIME_SPACING;
+        if (y <= CHART_START_Y + CHART_HEIGHT) {
+            graphics_draw_line(ctx, GPoint(CHART_START_X, y), GPoint(CHART_START_X + CHART_WIDTH, y));
+            
+            // Draw time labels (minutes ago from most recent)
+            int minutes_ago = i * 5; // Each reading is 5 minutes
+            static char time_label[8];
+            snprintf(time_label, sizeof(time_label), "-%dm", minutes_ago);
+            graphics_context_set_text_color(ctx, GColorWhite);
+            graphics_draw_text(ctx, time_label,
+                              fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                              GRect(0, y - 7, 28, 14),
+                              GTextOverflowModeTrailingEllipsis,
+                              GTextAlignmentRight,
+                              NULL);
         }
     }
     
-    // Vertical grid lines (every 30 minutes = 6 readings)
-    for (int i = 0; i <= 36; i += 6) {
-        int y = i * TIME_SCALE;
-        if (y < CHART_HEIGHT) {
-            graphics_draw_line(ctx, GPoint(0, y), GPoint(CHART_WIDTH, y));
-        }
-    }
-    
-    // Draw threshold lines (70 and 180 mg/dL or ~4 and 10 mmol/L)
+    // Draw threshold lines
     graphics_context_set_stroke_color(ctx, GColorRed);
-    int low_threshold = 70;
-    int high_threshold = 180;
+    int low_threshold = strcmp(s_bg_units, "mmol/L") == 0 ? 40 : 70;   // 4.0 mmol/L or 70 mg/dL
+    int high_threshold = strcmp(s_bg_units, "mmol/L") == 0 ? 100 : 180; // 10.0 mmol/L or 180 mg/dL
     
-    // Convert thresholds if using mmol/L
-    if (strcmp(s_bg_units, "mmol/L") == 0) {
-        low_threshold = 40;  // ~4.0 mmol/L * 10
-        high_threshold = 100; // ~10.0 mmol/L * 10
+    int low_x = CHART_START_X + ((low_threshold - min_bg) * CHART_WIDTH) / bg_range;
+    int high_x = CHART_START_X + ((high_threshold - min_bg) * CHART_WIDTH) / bg_range;
+    
+    if (low_x >= CHART_START_X && low_x <= CHART_START_X + CHART_WIDTH) {
+        graphics_draw_line(ctx, GPoint(low_x, CHART_START_Y), 
+                          GPoint(low_x, CHART_START_Y + CHART_HEIGHT));
+    }
+    if (high_x >= CHART_START_X && high_x <= CHART_START_X + CHART_WIDTH) {
+        graphics_draw_line(ctx, GPoint(high_x, CHART_START_Y), 
+                          GPoint(high_x, CHART_START_Y + CHART_HEIGHT));
     }
     
-    int low_x = (low_threshold * VALUE_SCALE) / 10;
-    int high_x = (high_threshold * VALUE_SCALE) / 10;
-    
-    if (low_x < CHART_WIDTH) {
-        graphics_draw_line(ctx, GPoint(low_x, 0), GPoint(low_x, CHART_HEIGHT));
-    }
-    if (high_x < CHART_WIDTH) {
-        graphics_draw_line(ctx, GPoint(high_x, 0), GPoint(high_x, CHART_HEIGHT));
-    }
-    
-    // Draw glucose readings as a line
+    // Draw glucose readings as a line graph
     graphics_context_set_stroke_color(ctx, GColorWhite);
     graphics_context_set_stroke_width(ctx, 2);
     
     for (int i = 0; i < s_reading_count - 1; i++) {
-        // Calculate positions
-        int value1 = s_readings[i].value / 10; // Convert back to actual value
-        int value2 = s_readings[i + 1].value / 10;
+        int value1 = s_readings[i].value;
+        int value2 = s_readings[i + 1].value;
         
-        int x1 = value1 * VALUE_SCALE;
-        int x2 = value2 * VALUE_SCALE;
-        int y1 = i * TIME_SCALE;
-        int y2 = (i + 1) * TIME_SCALE;
+        // Calculate x positions based on values
+        int x1 = CHART_START_X + ((value1 - min_bg) * CHART_WIDTH) / bg_range;
+        int x2 = CHART_START_X + ((value2 - min_bg) * CHART_WIDTH) / bg_range;
+        
+        // Calculate y positions based on time (index)
+        int y1 = CHART_START_Y + i * TIME_SPACING;
+        int y2 = CHART_START_Y + (i + 1) * TIME_SPACING;
         
         // Clamp to chart bounds
-        if (x1 < 0) x1 = 0;
-        if (x1 >= CHART_WIDTH) x1 = CHART_WIDTH - 1;
-        if (x2 < 0) x2 = 0;
-        if (x2 >= CHART_WIDTH) x2 = CHART_WIDTH - 1;
-        if (y1 < 0) y1 = 0;
-        if (y1 >= CHART_HEIGHT) y1 = CHART_HEIGHT - 1;
-        if (y2 < 0) y2 = 0;
-        if (y2 >= CHART_HEIGHT) y2 = CHART_HEIGHT - 1;
+        if (x1 < CHART_START_X) x1 = CHART_START_X;
+        if (x1 > CHART_START_X + CHART_WIDTH) x1 = CHART_START_X + CHART_WIDTH;
+        if (x2 < CHART_START_X) x2 = CHART_START_X;
+        if (x2 > CHART_START_X + CHART_WIDTH) x2 = CHART_START_X + CHART_WIDTH;
         
+        // Draw line connecting points
         graphics_draw_line(ctx, GPoint(x1, y1), GPoint(x2, y2));
         
         // Draw point
@@ -116,36 +151,14 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     
     // Draw last point
     if (s_reading_count > 0) {
-        int last_value = s_readings[s_reading_count - 1].value / 10;
-        int last_x = last_value * VALUE_SCALE;
-        int last_y = (s_reading_count - 1) * TIME_SCALE;
+        int last_value = s_readings[s_reading_count - 1].value;
+        int last_x = CHART_START_X + ((last_value - min_bg) * CHART_WIDTH) / bg_range;
+        int last_y = CHART_START_Y + (s_reading_count - 1) * TIME_SPACING;
         
-        if (last_x >= 0 && last_x < CHART_WIDTH && last_y >= 0 && last_y < CHART_HEIGHT) {
+        if (last_x >= CHART_START_X && last_x <= CHART_START_X + CHART_WIDTH) {
             graphics_context_set_fill_color(ctx, GColorWhite);
             graphics_fill_circle(ctx, GPoint(last_x, last_y), 2);
         }
-    }
-    
-    // Draw labels on the side
-    graphics_context_set_text_color(ctx, GColorWhite);
-    
-    // Current value label
-    if (s_reading_count > 0) {
-        static char value_text[16];
-        int current_value = s_readings[0].value;
-        
-        if (strcmp(s_bg_units, "mmol/L") == 0) {
-            snprintf(value_text, sizeof(value_text), "%.1f", current_value / 10.0);
-        } else {
-            snprintf(value_text, sizeof(value_text), "%d", current_value / 10);
-        }
-        
-        graphics_draw_text(ctx, value_text, 
-                          fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                          GRect(2, 2, 40, 20),
-                          GTextOverflowModeTrailingEllipsis,
-                          GTextAlignmentLeft,
-                          NULL);
     }
 }
 
@@ -271,13 +284,13 @@ static void main_window_load(Window *window) {
     Layer *window_layer = window_get_root_layer(window);
     GRect bounds = layer_get_bounds(window_layer);
     
-    // Create chart layer
-    s_chart_layer = layer_create(GRect(CHART_START_X, CHART_START_Y, CHART_WIDTH, CHART_HEIGHT - 20));
+    // Create chart layer (full screen except status bar at bottom)
+    s_chart_layer = layer_create(GRect(0, 0, bounds.size.w, bounds.size.h - 20));
     layer_set_update_proc(s_chart_layer, chart_layer_update_proc);
     layer_add_child(window_layer, s_chart_layer);
     
     // Create status text layer at bottom
-    s_status_layer = text_layer_create(GRect(0, CHART_HEIGHT - 20, CHART_WIDTH, 20));
+    s_status_layer = text_layer_create(GRect(0, bounds.size.h - 20, bounds.size.w, 20));
     text_layer_set_background_color(s_status_layer, GColorBlack);
     text_layer_set_text_color(s_status_layer, GColorWhite);
     text_layer_set_font(s_status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
