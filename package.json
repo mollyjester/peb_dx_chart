@@ -35,7 +35,8 @@
       "BG_COUNT",
       "BG_VALUE",
       "BG_TIMESTAMP",
-      "BG_INDEX"
+      "BG_INDEX",
+      "BG_CHUNK"
     ],
     "resources": {
       "media": []

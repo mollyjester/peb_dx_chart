@@ -8,8 +8,6 @@
 #define CHART_START_Y      10   /* Top margin for value labels */
 #define CHART_WIDTH       114   /* 144 - 30 */
 #define CHART_HEIGHT      148   /* 168 - 20 (status bar) */
-#define MIN_VALUE          40   /* Minimum BG value (mg/dL) */
-#define MAX_VALUE         360   /* Maximum BG value (mg/dL) */
 #define TIME_SPACING        4   /* Pixels between readings vertically */
 
 /* Dotted-line pattern: draw DOT_ON pixels, skip DOT_OFF pixels */
@@ -17,15 +15,19 @@
 #define DOT_OFF             3
 #define DOT_PERIOD          (DOT_ON + DOT_OFF)
 
-/* Number of fixed reference grid lines */
-#define NUM_GRID_LINES      3
-
 /* Time-grid interval in readings (6 readings = 30 minutes) */
 #define TIME_GRID_INTERVAL  6
 
+/* Auto-scaling constants */
+#define BG_PADDING         10   /* Padding in internal units (±1 mg/dL or ±0.1 mmol/L) */
+#define BG_MIN_RANGE       30   /* Minimum visible range in internal units */
+
 /* Message buffer sizes */
-#define APPMESSAGE_INBOX  256
-#define APPMESSAGE_OUTBOX 128
+#define APPMESSAGE_INBOX  2048
+#define APPMESSAGE_OUTBOX  128
+
+/* Bytes per reading in bulk transfer */
+#define BYTES_PER_READING   6
 
 /* ---------------------------------------------------------------------------
  * Global state
@@ -92,6 +94,14 @@ static void draw_dotted_vline(GContext *ctx, int x, int y_start, int y_end) {
 }
 
 /**
+ * Draw a solid vertical line from y_start to y_end at the given x.
+ */
+static void draw_solid_vline(GContext *ctx, int x, int y_start, int y_end) {
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_draw_line(ctx, GPoint(x, y_start), GPoint(x, y_end));
+}
+
+/**
  * Draw a dotted horizontal line from x_start to x_end at the given y.
  * Pattern: DOT_ON pixels drawn, DOT_OFF pixels skipped, repeating.
  */
@@ -105,31 +115,93 @@ static void draw_dotted_hline(GContext *ctx, int y, int x_start, int x_end) {
 }
 
 /**
+ * Choose a nice grid step that produces 1–3 lines within the given range.
+ */
+static int choose_grid_step(int bg_range) {
+    if (s_is_mmol) {
+        /* mmol/L internal values are ×10; steps represent 1.0, 2.0, 5.0 mmol/L */
+        static const int steps[] = {10, 20, 50};
+        for (int i = 0; i < 3; i++) {
+            int count = bg_range / steps[i];
+            if (count >= 1 && count <= 3) return steps[i];
+        }
+        return 50;
+    } else {
+        /* mg/dL mode */
+        static const int steps[] = {10, 20, 25, 50, 100};
+        for (int i = 0; i < 5; i++) {
+            int count = bg_range / steps[i];
+            if (count >= 1 && count <= 3) return steps[i];
+        }
+        return 100;
+    }
+}
+
+/**
+ * Draw a grid line label at the top of the chart.
+ */
+static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
+    int x = bg_to_x(bg, min_bg, bg_range);
+    if (!x_in_bounds(x)) return;
+
+    static char label[8];
+    if (s_is_mmol) {
+        snprintf(label, sizeof(label), "%d.%d", bg / 10, bg % 10);
+    } else {
+        snprintf(label, sizeof(label), "%d", bg);
+    }
+
+    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_draw_text(ctx, label,
+                       fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                       GRect(x - 15, 0, 30, 14),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+}
+
+/**
  * Draw the vertical value-reference grid lines with labels at the top.
+ * Includes one fixed clinical threshold line (solid) and dynamic dotted lines.
  */
 static void draw_value_grid(GContext *ctx, int min_bg, int bg_range) {
-    static const int  fixed_mmol[]   = {40, 100, 200};
-    static const int  fixed_mgdl[]   = {70, 180, 360};
-    static const char *labels_mmol[] = {"4", "10", "20"};
-    static const char *labels_mgdl[] = {"70", "180", "360"};
+    int max_bg = min_bg + bg_range;
 
-    for (int f = 0; f < NUM_GRID_LINES; f++) {
-        int bg = s_is_mmol ? fixed_mmol[f] : fixed_mgdl[f];
-        int x  = bg_to_x(bg, min_bg, bg_range);
+    /* Fixed clinical threshold: 4.0 mmol/L (72 mg/dL) if in range, else 3.0 (54) */
+    int threshold;
+    if (s_is_mmol) {
+        threshold = (40 >= min_bg && 40 <= max_bg) ? 40 : 30;
+    } else {
+        threshold = (72 >= min_bg && 72 <= max_bg) ? 72 : 54;
+    }
 
+    /* Draw fixed threshold as solid line */
+    {
+        int x = bg_to_x(threshold, min_bg, bg_range);
+        if (x_in_bounds(x)) {
+            draw_solid_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
+            draw_grid_label(ctx, threshold, min_bg, bg_range);
+        }
+    }
+
+    /* Dynamic grid lines */
+    int step = choose_grid_step(bg_range);
+    int first = ((min_bg / step) + 1) * step;
+    int close_dist = bg_range / 20;  /* 5% of range */
+    if (close_dist < 1) close_dist = 1;
+
+    int drawn = 0;
+    for (int bg = first; bg < max_bg && drawn < 3; bg += step) {
+        /* Skip if too close to the fixed threshold */
+        int diff = bg - threshold;
+        if (diff < 0) diff = -diff;
+        if (diff < close_dist) continue;
+
+        int x = bg_to_x(bg, min_bg, bg_range);
         if (!x_in_bounds(x)) continue;
 
-        /* Dotted vertical grid line */
         draw_dotted_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
-
-        /* Value label at the top */
-        const char *label = s_is_mmol ? labels_mmol[f] : labels_mgdl[f];
-        graphics_context_set_text_color(ctx, GColorWhite);
-        graphics_draw_text(ctx, label,
-                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                           GRect(x - 15, 0, 30, 14),
-                           GTextOverflowModeTrailingEllipsis,
-                           GTextAlignmentCenter, NULL);
+        draw_grid_label(ctx, bg, min_bg, bg_range);
+        drawn++;
     }
 }
 
@@ -202,6 +274,7 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range) {
  *
  * A small label showing the BG value is placed next to the data point.
  * Labels are offset horizontally so they don't overlap the line.
+ * Both min and max are always labeled, even if they are at the same index.
  */
 static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     if (s_reading_count < 1) return;
@@ -234,11 +307,9 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
         snprintf(max_label, sizeof(max_label), "%d", max_val);
     }
 
-    /* Helper macro-like drawing for each extremum */
     GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14);
     graphics_context_set_text_color(ctx, GColorWhite);
 
-    /* Place label to the right of the point; shift left if near chart edge */
     int label_w = 30;
     int label_h = 16;
 
@@ -249,21 +320,33 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
         int lx = (px + label_w + 4 > CHART_START_X + CHART_WIDTH)
                      ? px - label_w - 4
                      : px + 4;
+        int ly = py - label_h / 2;
+        /* Clamp vertically */
+        if (ly < 0) ly = 0;
+        if (ly + label_h > CHART_START_Y + CHART_HEIGHT) ly = CHART_START_Y + CHART_HEIGHT - label_h;
         graphics_draw_text(ctx, min_label, font,
-                           GRect(lx, py - label_h / 2, label_w, label_h),
+                           GRect(lx, ly, label_w, label_h),
                            GTextOverflowModeTrailingEllipsis,
                            GTextAlignmentLeft, NULL);
     }
 
-    /* --- maximum (skip if same point as minimum) --- */
-    if (max_idx != min_idx) {
+    /* --- maximum (always draw, offset if same index as minimum) --- */
+    {
         int px = clamp_x(bg_to_x(max_val, min_bg, bg_range));
         int py = index_to_y(max_idx);
         int lx = (px + label_w + 4 > CHART_START_X + CHART_WIDTH)
                      ? px - label_w - 4
                      : px + 4;
+        int ly = py - label_h / 2;
+        /* If same index as min, offset the max label upward to avoid overlap */
+        if (max_idx == min_idx) {
+            ly = py - label_h - 2;
+        }
+        /* Clamp vertically */
+        if (ly < 0) ly = 0;
+        if (ly + label_h > CHART_START_Y + CHART_HEIGHT) ly = CHART_START_Y + CHART_HEIGHT - label_h;
         graphics_draw_text(ctx, max_label, font,
-                           GRect(lx, py - label_h / 2, label_w, label_h),
+                           GRect(lx, ly, label_w, label_h),
                            GTextOverflowModeTrailingEllipsis,
                            GTextAlignmentLeft, NULL);
     }
@@ -299,9 +382,26 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
         return;
     }
 
-    int min_bg   = s_is_mmol ? 20 : MIN_VALUE;   /* 2.0 mmol/L or 40 mg/dL */
-    int max_bg   = s_is_mmol ? 200 : MAX_VALUE;  /* 20.0 mmol/L or 360 mg/dL */
+    /* Auto-scale: find min/max BG values from readings */
+    int data_min = s_readings[0].value;
+    int data_max = s_readings[0].value;
+    for (int i = 1; i < s_reading_count; i++) {
+        if (s_readings[i].value < data_min) data_min = s_readings[i].value;
+        if (s_readings[i].value > data_max) data_max = s_readings[i].value;
+    }
+
+    /* Add padding */
+    int min_bg = data_min - BG_PADDING;
+    int max_bg = data_max + BG_PADDING;
+
+    /* Enforce minimum visible range */
     int bg_range = max_bg - min_bg;
+    if (bg_range < BG_MIN_RANGE) {
+        int center = (min_bg + max_bg) / 2;
+        min_bg = center - BG_MIN_RANGE / 2;
+        max_bg = center + BG_MIN_RANGE / 2;
+        bg_range = max_bg - min_bg;
+    }
 
     draw_value_grid(ctx, min_bg, bg_range);
     draw_time_grid(ctx);
@@ -345,12 +445,13 @@ static void request_data(void) {
     }
 }
 
-/** Process an incoming AppMessage (units, count header, or reading). */
+/** Process an incoming AppMessage (units, count header, chunk, or reading). */
 static void inbox_received_callback(DictionaryIterator *iterator,
                                      void *context) {
     Tuple *count_tuple     = dict_find(iterator, MESSAGE_KEY_BG_COUNT);
     Tuple *units_tuple     = dict_find(iterator, MESSAGE_KEY_BG_UNITS);
     Tuple *index_tuple     = dict_find(iterator, MESSAGE_KEY_BG_INDEX);
+    Tuple *chunk_tuple     = dict_find(iterator, MESSAGE_KEY_BG_CHUNK);
     Tuple *value_tuple     = dict_find(iterator, MESSAGE_KEY_BG_VALUE);
     Tuple *timestamp_tuple = dict_find(iterator, MESSAGE_KEY_BG_TIMESTAMP);
 
@@ -370,6 +471,34 @@ static void inbox_received_callback(DictionaryIterator *iterator,
         return;
     }
 
+    /* Bulk chunk path */
+    if (chunk_tuple && index_tuple) {
+        uint8_t *data = chunk_tuple->value->data;
+        int byte_len = chunk_tuple->length;
+        int start_index = index_tuple->value->int32;
+        int readings_in_chunk = byte_len / BYTES_PER_READING;
+
+        for (int i = 0; i < readings_in_chunk; i++) {
+            int idx = start_index + i;
+            if (idx >= MAX_READINGS) break;
+            int offset = i * BYTES_PER_READING;
+            s_readings[idx].value = (int16_t)(data[offset] | (data[offset + 1] << 8));
+            s_readings[idx].timestamp = (time_t)((uint32_t)data[offset + 2] |
+                                                  ((uint32_t)data[offset + 3] << 8) |
+                                                  ((uint32_t)data[offset + 4] << 16) |
+                                                  ((uint32_t)data[offset + 5] << 24));
+            s_received_count++;
+        }
+
+        if (s_received_count >= s_expected_count) {
+            s_reading_count = s_expected_count;
+            s_receiving_data = false;
+            update_chart();
+        }
+        return;
+    }
+
+    /* Legacy per-reading path */
     if (index_tuple && value_tuple && timestamp_tuple) {
         int index = index_tuple->value->int32;
         if (index >= 0 && index < MAX_READINGS) {
