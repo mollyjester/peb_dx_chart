@@ -166,7 +166,7 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
         snprintf(label, sizeof(label), "%d", bg);
     }
 
-    int label_y = s_invert_y ? (CHART_START_Y + CHART_HEIGHT - 14) : 0;
+    int label_y = s_invert_y ? (CHART_HEIGHT - 14) : 0;
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, label,
                        fonts_get_system_font(FONT_KEY_GOTHIC_14),
