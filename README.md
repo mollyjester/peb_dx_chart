@@ -5,7 +5,7 @@ A Pebble watch app that displays a continuous glucose monitoring (CGM) chart fro
 ## Features
 
 - **3-Hour Glucose Chart**: Displays blood glucose readings for the last 3 hours
-- **Timeline Layout**: Most recent reading at top, older readings below (timeline goes down the y-axis)
+- **Timeline Layout**: Most recent reading at bottom, older readings going up (timeline goes up the y-axis)
 - **Value Display**: Glucose values displayed horizontally along the x-axis
 - **Threshold Lines**: Shows safe range boundaries (70-180 mg/dL or 4-10 mmol/L)
 - **Auto-Refresh**: Automatically fetches new data every 5 minutes
@@ -36,12 +36,12 @@ The app will automatically fetch your glucose data and display it on the chart.
 ## Chart Layout
 
 The chart displays:
-- **Y-axis (vertical)**: Time, with most recent at top going down (each line represents 5 minutes)
+- **Y-axis (vertical)**: Time, with most recent at bottom going up to oldest at top (each line represents 5 minutes)
 - **X-axis (horizontal)**: Blood glucose values
 - **Red vertical lines**: Low (70 mg/dL / 4 mmol/L) and high (180 mg/dL / 10 mmol/L) thresholds
-- **White line with dots**: Your glucose readings connected chronologically
+- **White line with dots**: Your glucose readings connected chronologically from bottom (newest) to top (oldest)
 - **Grid lines**: Help read values (every 50 mg/dL / 3 mmol/L horizontally, every 30 minutes vertically)
-- **Time labels**: Show how many minutes ago each reading was taken (-0m, -30m, -60m, etc.)
+- **Time labels**: Show how many minutes ago each reading was taken (-0m at bottom, -30m, -60m, etc. going up)
 
 ## Requirements
 

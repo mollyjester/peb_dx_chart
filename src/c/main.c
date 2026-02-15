@@ -83,9 +83,11 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     }
     
     // Horizontal grid lines (every 6 readings = 30 minutes)
+    // Draw from bottom (most recent) to top (oldest)
     for (int i = 0; i <= s_reading_count; i += 6) {
-        int y = CHART_START_Y + i * TIME_SPACING;
-        if (y <= CHART_START_Y + CHART_HEIGHT) {
+        // Calculate y from bottom: most recent (i=0) at bottom, oldest at top
+        int y = CHART_START_Y + CHART_HEIGHT - (i * TIME_SPACING);
+        if (y >= CHART_START_Y && y <= CHART_START_Y + CHART_HEIGHT) {
             graphics_draw_line(ctx, GPoint(CHART_START_X, y), GPoint(CHART_START_X + CHART_WIDTH, y));
             
             // Draw time labels (minutes ago from most recent)
@@ -120,6 +122,7 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     }
     
     // Draw glucose readings as a line graph
+    // Most recent (index 0) at bottom, oldest at top
     graphics_context_set_stroke_color(ctx, GColorWhite);
     graphics_context_set_stroke_width(ctx, 2);
     
@@ -132,8 +135,9 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
         int x2 = CHART_START_X + ((value2 - min_bg) * CHART_WIDTH) / bg_range;
         
         // Calculate y positions based on time (index)
-        int y1 = CHART_START_Y + i * TIME_SPACING;
-        int y2 = CHART_START_Y + (i + 1) * TIME_SPACING;
+        // Most recent (i=0) at bottom, oldest at top
+        int y1 = CHART_START_Y + CHART_HEIGHT - (i * TIME_SPACING);
+        int y2 = CHART_START_Y + CHART_HEIGHT - ((i + 1) * TIME_SPACING);
         
         // Clamp to chart bounds
         if (x1 < CHART_START_X) x1 = CHART_START_X;
@@ -149,11 +153,11 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
         graphics_fill_circle(ctx, GPoint(x1, y1), 2);
     }
     
-    // Draw last point
+    // Draw last point (oldest reading at top)
     if (s_reading_count > 0) {
         int last_value = s_readings[s_reading_count - 1].value;
         int last_x = CHART_START_X + ((last_value - min_bg) * CHART_WIDTH) / bg_range;
-        int last_y = CHART_START_Y + (s_reading_count - 1) * TIME_SPACING;
+        int last_y = CHART_START_Y + CHART_HEIGHT - ((s_reading_count - 1) * TIME_SPACING);
         
         if (last_x >= CHART_START_X && last_x <= CHART_START_X + CHART_WIDTH) {
             graphics_context_set_fill_color(ctx, GColorWhite);
