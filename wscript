@@ -6,11 +6,6 @@
 #
 
 import os.path
-try:
-    from sh import CommandNotFound, jshint, cat, ErrorReturnCode_2
-    hint = jshint
-except (ImportError, CommandNotFound):
-    hint = None
 
 top = '.'
 out = 'build'
@@ -22,22 +17,9 @@ def configure(ctx):
     ctx.load('pebble_sdk')
 
 def build(ctx):
-    if False and hint is not None:
-        try:
-            hint([node.abspath() for node in ctx.path.ant_glob("src/**/*.js")], _tty_out=False) # no tty because there are none in the cloudpebble sandbox.
-        except ErrorReturnCode_2 as e:
-            ctx.fatal("\nJavaScript linting failed (you can disable this in Project Settings):\n" + e.stdout)
-
-    # Concatenate all our JS files (but not recursively), and only if any JS exists in the first place.
-    ctx.path.make_node('src/js/').mkdir()
-    js_paths = ctx.path.ant_glob(['src/**/*.js', 'src/**/*.json'], excl=['src/js/**/*.js'])
-    if js_paths:
-        ctx(rule='cat ${SRC} > ${TGT}', source=js_paths, target='pebble-js-app.js')
-        has_js = True
-    else:
-        has_js = False
-
     ctx.load('pebble_sdk')
+
+    js_sources = ctx.path.ant_glob(['src/pkjs/**/*.js', 'src/pkjs/**/*.json'])
 
     build_worker = os.path.exists('worker_src')
     binaries = []
@@ -58,4 +40,6 @@ def build(ctx):
             binaries.append({'platform': p, 'app_elf': app_elf})
 
     ctx.set_group('bundle')
-    ctx.pbl_bundle(binaries=binaries, js='pebble-js-app.js' if has_js else [])
+    ctx.pbl_bundle(binaries=binaries,
+                   js=js_sources if js_sources else [],
+                   js_entry_file='src/pkjs/index.js' if js_sources else None)
