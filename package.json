@@ -1,0 +1,44 @@
+{
+  "name": "peb_dx_chart",
+  "author": "Sergei Likharev",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {
+    "pebble-clay": "^1.0.4"
+  },
+  "pebble": {
+    "displayName": "Dexcom Chart",
+    "uuid": "00000000-0000-0000-0000-000000000002",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "capabilities": [
+      "configurable"
+    ],
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "diorite",
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "DEX_LOGIN",
+      "DEX_PASSWORD",
+      "DEX_REGION",
+      "BG_UNITS",
+      "BG_DATA",
+      "BG_COUNT",
+      "BG_VALUE",
+      "BG_TIMESTAMP",
+      "BG_INDEX"
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}

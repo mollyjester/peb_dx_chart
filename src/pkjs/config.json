@@ -1,0 +1,86 @@
+[
+  {
+    "type": "heading",
+    "defaultValue": "Dexcom Chart Settings"
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Dexcom Account"
+      },
+      {
+        "type": "input",
+        "messageKey": "DEX_LOGIN",
+        "label": "Login",
+        "description": "Your Dexcom Share username/email",
+        "defaultValue": "",
+        "attributes": {
+          "placeholder": "username@example.com"
+        }
+      },
+      {
+        "type": "input",
+        "messageKey": "DEX_PASSWORD",
+        "label": "Password",
+        "description": "Your Dexcom Share password",
+        "defaultValue": "",
+        "attributes": {
+          "type": "password",
+          "placeholder": "password"
+        }
+      },
+      {
+        "type": "select",
+        "messageKey": "DEX_REGION",
+        "label": "Region",
+        "description": "Your Dexcom server region",
+        "defaultValue": "ous",
+        "options": [
+          {
+            "label": "US",
+            "value": "us"
+          },
+          {
+            "label": "Outside US",
+            "value": "ous"
+          },
+          {
+            "label": "Japan",
+            "value": "jp"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Display"
+      },
+      {
+        "type": "select",
+        "messageKey": "BG_UNITS",
+        "label": "Blood Glucose Units",
+        "defaultValue": "mg/dL",
+        "options": [
+          {
+            "label": "mg/dL",
+            "value": "mg/dL"
+          },
+          {
+            "label": "mmol/L",
+            "value": "mmol/L"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "submit",
+    "defaultValue": "Save Settings"
+  }
+]
