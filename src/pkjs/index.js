@@ -143,9 +143,9 @@ function sendGlucoseData(cache) {
         timestamps.push(cache[i].t);
     }
 
-    console.log('Sending ' + count + ' readings to watch');
-    console.log('First reading: ' + values[0] + ' at ' + new Date(timestamps[0] * 1000));
-    console.log('Last reading: ' + values[count - 1] + ' at ' + new Date(timestamps[count - 1] * 1000));
+    console.log('Sending ' + count + ' readings to watch (' + bgUnits + ')');
+    console.log('First reading: ' + values[0] / 10 + ' ' + bgUnits + ' at ' + new Date(timestamps[0] * 1000));
+    console.log('Last reading: ' + values[count - 1] / 10 + ' ' + bgUnits + ' at ' + new Date(timestamps[count - 1] * 1000));
 
     /* Send header first */
     Pebble.sendAppMessage({
