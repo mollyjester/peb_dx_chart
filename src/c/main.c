@@ -80,29 +80,20 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     static const char *labels_mgdl[] = {"70", "180", "360"};
     int num_fixed = 3;
     
+    // Store x positions for drawing labels after threshold lines
+    int fixed_x[3];
+    
     for (int f = 0; f < num_fixed; f++) {
         int bg = s_is_mmol ? fixed_mmol[f] : fixed_mgdl[f];
-        int x = CHART_START_X + ((bg - min_bg) * CHART_WIDTH) / bg_range;
+        fixed_x[f] = CHART_START_X + ((bg - min_bg) * CHART_WIDTH) / bg_range;
         
-        if (x < CHART_START_X || x > CHART_START_X + CHART_WIDTH) continue;
+        if (fixed_x[f] < CHART_START_X || fixed_x[f] > CHART_START_X + CHART_WIDTH) continue;
         
-        // Draw dashed vertical line from top to bottom
-        graphics_context_set_stroke_color(ctx, GColorDarkGray);
-        for (int y = CHART_START_Y; y <= CHART_START_Y + CHART_HEIGHT; y += 4) {
-            int y_end = y + 2;
-            if (y_end > CHART_START_Y + CHART_HEIGHT) y_end = CHART_START_Y + CHART_HEIGHT;
-            graphics_draw_line(ctx, GPoint(x, y), GPoint(x, y_end));
+        // Draw dotted vertical line (1px thin, dot every other pixel)
+        graphics_context_set_stroke_color(ctx, GColorWhite);
+        for (int y = CHART_START_Y; y <= CHART_START_Y + CHART_HEIGHT; y += 2) {
+            graphics_draw_pixel(ctx, GPoint(fixed_x[f], y));
         }
-        
-        // Draw value labels at top
-        const char *label = s_is_mmol ? labels_mmol[f] : labels_mgdl[f];
-        graphics_context_set_text_color(ctx, GColorWhite);
-        graphics_draw_text(ctx, label,
-                          fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                          GRect(x - 15, 0, 30, 14),
-                          GTextOverflowModeTrailingEllipsis,
-                          GTextAlignmentCenter,
-                          NULL);
     }
     
     // Horizontal grid lines (every 6 readings = 30 minutes)
@@ -136,7 +127,7 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     }
     
     // Draw threshold lines
-    graphics_context_set_stroke_color(ctx, GColorRed);
+    graphics_context_set_stroke_color(ctx, GColorWhite);
     int low_threshold = s_is_mmol ? 40 : 70;   // 4.0 mmol/L or 70 mg/dL
     int high_threshold = s_is_mmol ? 100 : 180; // 10.0 mmol/L or 180 mg/dL
     
@@ -150,6 +141,20 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     if (high_x >= CHART_START_X && high_x <= CHART_START_X + CHART_WIDTH) {
         graphics_draw_line(ctx, GPoint(high_x, CHART_START_Y), 
                           GPoint(high_x, CHART_START_Y + CHART_HEIGHT));
+    }
+    
+    // Draw value labels at top (after threshold lines so they are not obscured)
+    for (int f = 0; f < num_fixed; f++) {
+        if (fixed_x[f] < CHART_START_X || fixed_x[f] > CHART_START_X + CHART_WIDTH) continue;
+        
+        const char *label = s_is_mmol ? labels_mmol[f] : labels_mgdl[f];
+        graphics_context_set_text_color(ctx, GColorWhite);
+        graphics_draw_text(ctx, label,
+                          fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                          GRect(fixed_x[f] - 15, 0, 30, 14),
+                          GTextOverflowModeTrailingEllipsis,
+                          GTextAlignmentCenter,
+                          NULL);
     }
     
     // Draw glucose readings as a line graph
