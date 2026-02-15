@@ -1,101 +1,74 @@
-name: Build Pebble App
+name: Build and Release
 
 on:
-  # Allow manual trigger from GitHub UI
+  push:
+    tags:
+      - 'v*' # Triggers on tags like v1.0.1, v2.0, etc.
+  workflow_run:
+    workflows: ["Auto Tag on Merge"]
+    types:
+      - completed
   workflow_dispatch:
     inputs:
-      platforms:
-        description: 'Platforms to build (comma-separated: aplite,basalt,chalk,diorite,emery or "all")'
-        required: false
-        default: 'all'
-  # Also trigger on push to main and PRs
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+      tag:
+        description: 'Tag to build and release (e.g., v1.0.0)'
+        required: true
+        type: string
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
-    
+    # Run when triggered by a tag push, or when the Auto Tag workflow succeeded, or manually
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write # Required to create the release and upload assets
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '2.7'
-        
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '14'
-        
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y python2.7-dev python-pip libfreetype6-dev libsdl1.2-dev libsdl-image1.2-dev
-        
-    - name: Install Pebble SDK
-      run: |
-        # Create virtualenv for Pebble SDK
-        pip install virtualenv
-        virtualenv --python=python2.7 ~/.pebble-sdk
-        source ~/.pebble-sdk/bin/activate
-        
-        # Install Pebble SDK
-        pip install pebble-sdk
-        
-        # Verify installation
-        pebble --version || echo "Pebble SDK installed but not in PATH"
-        
-    - name: Install npm dependencies
-      run: |
-        npm install
-        
-    - name: Build Pebble app
-      run: |
-        # Activate virtualenv
-        source ~/.pebble-sdk/bin/activate
-        
-        # Determine platforms to build
-        PLATFORMS="${{ github.event.inputs.platforms }}"
-        if [ -z "$PLATFORMS" ] || [ "$PLATFORMS" = "all" ]; then
-          # Build for all platforms defined in package.json
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine tag
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            TAG=$(git describe --tags --abbrev=0)
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout tag
+        run: git checkout "${{ steps.get_tag.outputs.tag }}"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Pebble SDK
+        run: |
+          uv tool install pebble-tool --python 3.13
+          pebble sdk install latest
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl1.2debian libfdt1
+
+      - name: Clean and Build
+        run: |
+          pebble clean
           pebble build
-        else
-          # Build for specific platforms
-          IFS=',' read -ra PLATFORM_ARRAY <<< "$PLATFORMS"
-          for platform in "${PLATFORM_ARRAY[@]}"; do
-            echo "Building for platform: $platform"
-            pebble build --platforms "$platform"
-          done
-        fi
-        
-    - name: List build artifacts
-      run: |
-        echo "Build directory contents:"
-        ls -lah build/ || echo "Build directory not found"
-        find . -name "*.pbw" -type f
-        
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: pebble-app-${{ github.sha }}
-        path: |
-          build/*.pbw
-          build/**/*.pbw
-        if-no-files-found: warn
-        retention-days: 30
-        
-    - name: Upload build logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-logs-${{ github.sha }}
-        path: |
-          build/*.log
-          build/**/*.log
-        if-no-files-found: ignore
-        retention-days: 7
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_tag.outputs.tag }}
+          files: build/*.pbw # Automatically attaches the compiled watchface
+          generate_release_notes: true # Auto-generates notes from your commit history
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

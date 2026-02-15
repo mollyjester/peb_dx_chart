@@ -27,6 +27,9 @@ typedef struct {
 
 static GlucoseReading s_readings[MAX_READINGS];
 static int s_reading_count = 0;
+static int s_expected_count = 0;
+static int s_received_count = 0;
+static bool s_is_mmol = false;
 static char s_bg_units[10] = "mg/dL";
 static char s_status_text[32] = "Loading...";
 
@@ -52,23 +55,23 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     
     GRect bounds = layer_get_bounds(layer);
     
-    // Calculate scaling
-    int min_bg = strcmp(s_bg_units, "mmol/L") == 0 ? 20 : MIN_VALUE; // 2.0 mmol/L or 40 mg/dL
-    int max_bg = strcmp(s_bg_units, "mmol/L") == 0 ? 220 : MAX_VALUE; // 22.0 mmol/L or 400 mg/dL
+    // Calculate scaling using cached unit type
+    int min_bg = s_is_mmol ? 20 : MIN_VALUE; // 2.0 mmol/L or 40 mg/dL
+    int max_bg = s_is_mmol ? 220 : MAX_VALUE; // 22.0 mmol/L or 400 mg/dL
     int bg_range = max_bg - min_bg;
     
     // Draw background grid
     graphics_context_set_stroke_color(ctx, GColorDarkGray);
     
     // Vertical grid lines (every 50 mg/dL or 3 mmol/L)
-    int grid_step = strcmp(s_bg_units, "mmol/L") == 0 ? 30 : 50; // 3.0 mmol/L or 50 mg/dL
+    int grid_step = s_is_mmol ? 30 : 50; // 3.0 mmol/L or 50 mg/dL
     for (int bg = min_bg; bg <= max_bg; bg += grid_step) {
         int x = CHART_START_X + ((bg - min_bg) * CHART_WIDTH) / bg_range;
         graphics_draw_line(ctx, GPoint(x, CHART_START_Y), GPoint(x, CHART_START_Y + CHART_HEIGHT));
         
         // Draw value labels at top
         static char label[8];
-        if (strcmp(s_bg_units, "mmol/L") == 0) {
+        if (s_is_mmol) {
             snprintf(label, sizeof(label), "%.0f", bg / 10.0);
         } else {
             snprintf(label, sizeof(label), "%d", bg / 10);
@@ -106,8 +109,8 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     
     // Draw threshold lines
     graphics_context_set_stroke_color(ctx, GColorRed);
-    int low_threshold = strcmp(s_bg_units, "mmol/L") == 0 ? 40 : 70;   // 4.0 mmol/L or 70 mg/dL
-    int high_threshold = strcmp(s_bg_units, "mmol/L") == 0 ? 100 : 180; // 10.0 mmol/L or 180 mg/dL
+    int low_threshold = s_is_mmol ? 40 : 70;   // 4.0 mmol/L or 70 mg/dL
+    int high_threshold = s_is_mmol ? 100 : 180; // 10.0 mmol/L or 180 mg/dL
     
     int low_x = CHART_START_X + ((low_threshold - min_bg) * CHART_WIDTH) / bg_range;
     int high_x = CHART_START_X + ((high_threshold - min_bg) * CHART_WIDTH) / bg_range;
@@ -198,7 +201,6 @@ static void request_data(void) {
         // Send empty message to trigger data fetch
         dict_write_uint8(iter, MESSAGE_KEY_BG_DATA, 0);
         app_message_outbox_send();
-        APP_LOG(APP_LOG_LEVEL_INFO, "Requested data from phone");
     }
 }
 
@@ -215,7 +217,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     // Handle units
     if (units_tuple) {
         snprintf(s_bg_units, sizeof(s_bg_units), "%s", units_tuple->value->cstring);
-        APP_LOG(APP_LOG_LEVEL_INFO, "Units: %s", s_bg_units);
+        s_is_mmol = (strcmp(s_bg_units, "mmol/L") == 0);
     }
     
     // Handle count (start of new data)
@@ -223,7 +225,8 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         int count = count_tuple->value->int32;
         if (count > MAX_READINGS) count = MAX_READINGS;
         s_reading_count = count;
-        APP_LOG(APP_LOG_LEVEL_INFO, "Expecting %d readings", s_reading_count);
+        s_expected_count = count;
+        s_received_count = 0;
         
         // Reset readings array
         memset(s_readings, 0, sizeof(s_readings));
@@ -237,12 +240,12 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         if (index >= 0 && index < MAX_READINGS) {
             s_readings[index].value = value_tuple->value->int16;
             s_readings[index].timestamp = timestamp_tuple->value->int32;
+            s_received_count++;
             
-            APP_LOG(APP_LOG_LEVEL_INFO, "Reading %d: value=%d, time=%d", 
-                   index, s_readings[index].value, (int)s_readings[index].timestamp);
-            
-            // Update chart after receiving each reading
-            update_chart();
+            // Only update chart after all readings are received
+            if (s_received_count >= s_expected_count) {
+                update_chart();
+            }
         }
     }
 }
@@ -255,13 +258,6 @@ static void inbox_dropped_callback(AppMessageResult reason, void *context) {
 }
 
 /**
- * Handle outbox send success
- */
-static void outbox_sent_callback(DictionaryIterator *iterator, void *context) {
-    APP_LOG(APP_LOG_LEVEL_INFO, "Message sent successfully");
-}
-
-/**
  * Handle outbox send failure
  */
 static void outbox_failed_callback(DictionaryIterator *iterator, AppMessageResult reason, void *context) {
@@ -269,14 +265,11 @@ static void outbox_failed_callback(DictionaryIterator *iterator, AppMessageResul
 }
 
 /**
- * Handle tick events (every minute)
+ * Handle tick events (every 5 minutes for battery efficiency)
  */
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-    // Update chart to show elapsed time
-    update_chart();
-    
-    // Request new data every 5 minutes
     if (tick_time->tm_min % 5 == 0) {
+        update_chart();
         request_data();
     }
 }
@@ -327,13 +320,12 @@ static void init(void) {
     // Register AppMessage callbacks
     app_message_register_inbox_received(inbox_received_callback);
     app_message_register_inbox_dropped(inbox_dropped_callback);
-    app_message_register_outbox_sent(outbox_sent_callback);
     app_message_register_outbox_failed(outbox_failed_callback);
     
     // Open AppMessage
     app_message_open(APPMESSAGE_INBOX, APPMESSAGE_OUTBOX);
     
-    // Register tick timer (every minute)
+    // Register tick timer (every 5 minutes for battery efficiency)
     tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
     
     // Request initial data
