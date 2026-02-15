@@ -299,8 +299,7 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range) {
  *
  * Labels are placed on the "empty" side of the chart relative to the data
  * point: the min label toward lower values, the max label toward higher
- * values.  A white background rectangle is drawn behind each label so text
- * stays readable when it overlaps grid lines or the glucose curve.
+ * values.
  * When the two labels are close together vertically they are pushed apart.
  */
 static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
@@ -338,7 +337,6 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
 
     int label_w = 30;
     int label_h = 16;
-    int label_pad = 1;  /* padding around the background rect */
     int left = chart_left();
     int right_edge = left + CHART_WIDTH;
 
@@ -419,22 +417,14 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     if (max_ly + label_h > CHART_START_Y + CHART_HEIGHT)
         max_ly = CHART_START_Y + CHART_HEIGHT - label_h;
 
-    /* --- draw minimum label with white background --- */
-    graphics_context_set_fill_color(ctx, GColorWhite);
-    graphics_fill_rect(ctx,
-        GRect(min_lx - label_pad, min_ly, label_w + 2 * label_pad, label_h),
-        0, GCornerNone);
+    /* --- draw minimum label --- */
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, min_label, font,
                        GRect(min_lx, min_ly, label_w, label_h),
                        GTextOverflowModeTrailingEllipsis,
                        GTextAlignmentCenter, NULL);
 
-    /* --- draw maximum label with white background --- */
-    graphics_context_set_fill_color(ctx, GColorWhite);
-    graphics_fill_rect(ctx,
-        GRect(max_lx - label_pad, max_ly, label_w + 2 * label_pad, label_h),
-        0, GCornerNone);
+    /* --- draw maximum label --- */
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, max_label, font,
                        GRect(max_lx, max_ly, label_w, label_h),
