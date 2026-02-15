@@ -35,7 +35,7 @@ static Layer     *s_chart_layer;
 static TextLayer *s_status_layer;
 
 typedef struct {
-    int16_t value;      /* BG value (e.g. 123 mg/dL stored as 123) */
+    int16_t value;      /* BG value x10 for mmol/L precision (e.g. 123 mg/dL = 1230) */
     time_t  timestamp;
 } GlucoseReading;
 
@@ -299,8 +299,8 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
         return;
     }
 
-    int min_bg   = s_is_mmol ? 20 : MIN_VALUE;
-    int max_bg   = s_is_mmol ? 200 : MAX_VALUE;
+    int min_bg   = s_is_mmol ? 20 : MIN_VALUE;   /* 2.0 mmol/L or 40 mg/dL */
+    int max_bg   = s_is_mmol ? 200 : MAX_VALUE;  /* 20.0 mmol/L or 360 mg/dL */
     int bg_range = max_bg - min_bg;
 
     draw_value_grid(ctx, min_bg, bg_range);
