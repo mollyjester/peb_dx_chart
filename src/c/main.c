@@ -338,7 +338,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
 
     int label_w = 30;
     int label_h = 16;
-    int label_pad = 1;  /* padding inside the background rect */
+    int label_pad = 1;  /* padding around the background rect */
     int left = chart_left();
     int right_edge = left + CHART_WIDTH;
 
@@ -394,7 +394,9 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
 
         /* Check if the label rectangles overlap vertically */
         if (min_top < max_bot && max_top < min_bot) {
-            int overlap = (min_bot < max_bot ? min_bot - max_top : max_bot - min_top);
+            int lower_top = (min_top > max_top) ? min_top : max_top;
+            int upper_bot = (min_bot < max_bot) ? min_bot : max_bot;
+            int overlap  = upper_bot - lower_top;
             int half = (overlap + 1) / 2;
 
             /* Push the label whose data point is higher on screen upward,
