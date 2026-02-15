@@ -13,6 +13,21 @@ A Pebble watch app that displays a continuous glucose monitoring (CGM) chart fro
 
 ## Installation
 
+### Option 1: Build with GitHub Actions (Recommended)
+
+The easiest way to build the app is using the GitHub Actions workflow:
+
+1. Go to the [Actions tab](../../actions) in this repository
+2. Click on "Build Pebble App" workflow
+3. Click "Run workflow"
+4. Optionally select specific platforms (or leave as "all" to build for all platforms)
+5. Click "Run workflow" button
+6. Wait for the build to complete
+7. Download the `.pbw` file from the workflow artifacts
+8. Install the `.pbw` file using the Pebble app on your phone
+
+### Option 2: Build Locally
+
 1. Install the Pebble SDK if you haven't already
 2. Clone this repository
 3. Run `pebble build` to compile the app
@@ -50,6 +65,40 @@ The chart displays:
 - Dexcom Share account with data sharing enabled
 - Pebble/Rebble app on your phone
 - Internet connection on phone
+
+## Development
+
+### Building the App
+
+The repository includes a GitHub Actions workflow that automatically builds the Pebble app. The workflow:
+
+- **Manual Trigger**: Can be manually triggered from the Actions tab
+- **Platform Selection**: Supports building for specific platforms (aplite, basalt, chalk, diorite, emery) or all platforms
+- **Automatic Builds**: Automatically builds on push to main branch and pull requests
+- **Artifacts**: Produces `.pbw` files as downloadable artifacts
+
+To manually trigger a build:
+1. Navigate to **Actions** → **Build Pebble App**
+2. Click **Run workflow**
+3. Select platforms (optional, defaults to "all")
+4. Download the `.pbw` artifact after completion
+
+### Local Development
+
+For local development with the Pebble SDK:
+```bash
+# Install dependencies
+npm install
+
+# Build for all platforms
+pebble build
+
+# Build for specific platform
+pebble build --platforms basalt
+
+# Install to connected phone
+pebble install --phone <phone_ip>
+```
 
 ## Based on
 
