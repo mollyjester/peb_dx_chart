@@ -85,7 +85,7 @@ static bool x_in_bounds(int x) {
  * Pattern: DOT_ON pixels drawn, DOT_OFF pixels skipped, repeating.
  */
 static void draw_dotted_vline(GContext *ctx, int x, int y_start, int y_end) {
-    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_context_set_stroke_color(ctx, GColorBlack);
     for (int y = y_start; y <= y_end; y++) {
         if ((y - y_start) % DOT_PERIOD < DOT_ON) {
             graphics_draw_pixel(ctx, GPoint(x, y));
@@ -97,7 +97,7 @@ static void draw_dotted_vline(GContext *ctx, int x, int y_start, int y_end) {
  * Draw a solid vertical line from y_start to y_end at the given x.
  */
 static void draw_solid_vline(GContext *ctx, int x, int y_start, int y_end) {
-    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_context_set_stroke_color(ctx, GColorBlack);
     graphics_draw_line(ctx, GPoint(x, y_start), GPoint(x, y_end));
 }
 
@@ -106,7 +106,7 @@ static void draw_solid_vline(GContext *ctx, int x, int y_start, int y_end) {
  * Pattern: DOT_ON pixels drawn, DOT_OFF pixels skipped, repeating.
  */
 static void draw_dotted_hline(GContext *ctx, int y, int x_start, int x_end) {
-    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_context_set_stroke_color(ctx, GColorBlack);
     for (int x = x_start; x <= x_end; x++) {
         if ((x - x_start) % DOT_PERIOD < DOT_ON) {
             graphics_draw_pixel(ctx, GPoint(x, y));
@@ -151,7 +151,7 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
         snprintf(label, sizeof(label), "%d", bg);
     }
 
-    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, label,
                        fonts_get_system_font(FONT_KEY_GOTHIC_14),
                        GRect(x - 15, 0, 30, 14),
@@ -228,7 +228,7 @@ static void draw_time_grid(GContext *ctx) {
         } else {
             snprintf(time_label, sizeof(time_label), "%d.5h", minutes_ago / 60);
         }
-        graphics_context_set_text_color(ctx, GColorWhite);
+        graphics_context_set_text_color(ctx, GColorBlack);
         graphics_draw_text(ctx, time_label,
                            fonts_get_system_font(FONT_KEY_GOTHIC_14),
                            GRect(0, y - 7, 28, 14),
@@ -241,7 +241,7 @@ static void draw_time_grid(GContext *ctx) {
  * Draw the glucose line graph (line segments + data-point dots).
  */
 static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range) {
-    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_context_set_stroke_color(ctx, GColorBlack);
     graphics_context_set_stroke_width(ctx, 2);
 
     for (int i = 0; i < s_reading_count - 1; i++) {
@@ -252,7 +252,7 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range) {
 
         graphics_draw_line(ctx, GPoint(x1, y1), GPoint(x2, y2));
 
-        graphics_context_set_fill_color(ctx, GColorWhite);
+        graphics_context_set_fill_color(ctx, GColorBlack);
         graphics_fill_circle(ctx, GPoint(x1, y1), 2);
     }
 
@@ -263,7 +263,7 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range) {
         int ly = index_to_y(last_idx);
 
         if (x_in_bounds(lx)) {
-            graphics_context_set_fill_color(ctx, GColorWhite);
+            graphics_context_set_fill_color(ctx, GColorBlack);
             graphics_fill_circle(ctx, GPoint(lx, ly), 2);
         }
     }
@@ -308,7 +308,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     }
 
     GFont font = fonts_get_system_font(FONT_KEY_GOTHIC_14);
-    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_context_set_text_color(ctx, GColorBlack);
 
     int label_w = 30;
     int label_h = 16;
@@ -356,7 +356,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
  * Show a centred status message when no data is available.
  */
 static void draw_no_data_message(GContext *ctx) {
-    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_context_set_text_color(ctx, GColorBlack);
     if (s_receiving_data) {
         graphics_draw_text(ctx, "Loading...",
                            fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
@@ -551,8 +551,8 @@ static void main_window_load(Window *window) {
 
     s_status_layer = text_layer_create(
         GRect(0, bounds.size.h - 20, bounds.size.w, 20));
-    text_layer_set_background_color(s_status_layer, GColorBlack);
-    text_layer_set_text_color(s_status_layer, GColorWhite);
+    text_layer_set_background_color(s_status_layer, GColorWhite);
+    text_layer_set_text_color(s_status_layer, GColorBlack);
     text_layer_set_font(s_status_layer,
                         fonts_get_system_font(FONT_KEY_GOTHIC_14));
     text_layer_set_text_alignment(s_status_layer, GTextAlignmentCenter);
@@ -571,7 +571,7 @@ static void main_window_unload(Window *window) {
 
 static void init(void) {
     s_main_window = window_create();
-    window_set_background_color(s_main_window, GColorBlack);
+    window_set_background_color(s_main_window, GColorWhite);
     window_set_window_handlers(s_main_window, (WindowHandlers){
         .load   = main_window_load,
         .unload = main_window_unload
