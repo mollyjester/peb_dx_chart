@@ -59,9 +59,18 @@ static void request_data(void);
  * Chart-drawing helpers
  * --------------------------------------------------------------------------- */
 
+/** Return the left edge of the chart area (depends on inversion). */
+static int chart_left(void) {
+    return s_invert_y ? 0 : CHART_START_X;
+}
+
 /** Map a BG value to an x-pixel coordinate within the chart area. */
 static int bg_to_x(int bg_value, int min_bg, int bg_range) {
-    return CHART_START_X + ((bg_value - min_bg) * CHART_WIDTH) / bg_range;
+    int left = chart_left();
+    if (s_invert_y) {
+        return left + CHART_WIDTH - ((bg_value - min_bg) * CHART_WIDTH) / bg_range;
+    }
+    return left + ((bg_value - min_bg) * CHART_WIDTH) / bg_range;
 }
 
 /** Map a reading index to a y-pixel coordinate (index 0 = bottom / newest). */
@@ -74,14 +83,16 @@ static int index_to_y(int index) {
 
 /** Clamp an x value to the visible chart area. */
 static int clamp_x(int x) {
-    if (x < CHART_START_X) return CHART_START_X;
-    if (x > CHART_START_X + CHART_WIDTH) return CHART_START_X + CHART_WIDTH;
+    int left = chart_left();
+    if (x < left) return left;
+    if (x > left + CHART_WIDTH) return left + CHART_WIDTH;
     return x;
 }
 
 /** Return true when x falls inside the visible chart area. */
 static bool x_in_bounds(int x) {
-    return x >= CHART_START_X && x <= CHART_START_X + CHART_WIDTH;
+    int left = chart_left();
+    return x >= left && x <= left + CHART_WIDTH;
 }
 
 /**
@@ -142,7 +153,7 @@ static int choose_grid_step(int bg_range) {
 }
 
 /**
- * Draw a grid line label at the top of the chart.
+ * Draw a grid line label at the top (or bottom when inverted) of the chart.
  */
 static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
     int x = bg_to_x(bg, min_bg, bg_range);
@@ -155,10 +166,11 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
         snprintf(label, sizeof(label), "%d", bg);
     }
 
+    int label_y = s_invert_y ? (CHART_START_Y + CHART_HEIGHT - 14) : 0;
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, label,
                        fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                       GRect(x - 15, 0, 30, 14),
+                       GRect(x - 15, label_y, 30, 14),
                        GTextOverflowModeTrailingEllipsis,
                        GTextAlignmentCenter, NULL);
 }
@@ -210,15 +222,16 @@ static void draw_value_grid(GContext *ctx, int min_bg, int bg_range) {
 }
 
 /**
- * Draw the horizontal time-grid lines with labels on the left.
+ * Draw the horizontal time-grid lines with labels on the left (or right when inverted).
  */
 static void draw_time_grid(GContext *ctx) {
+    int left = chart_left();
     for (int i = 0; i <= s_reading_count; i += TIME_GRID_INTERVAL) {
         int y = index_to_y(i);
         if (y < CHART_START_Y || y > CHART_START_Y + CHART_HEIGHT) continue;
 
         /* Dotted horizontal grid line */
-        draw_dotted_hline(ctx, y, CHART_START_X, CHART_START_X + CHART_WIDTH);
+        draw_dotted_hline(ctx, y, left, left + CHART_WIDTH);
 
         /* Time label */
         int minutes_ago = i * 5;
@@ -233,11 +246,19 @@ static void draw_time_grid(GContext *ctx) {
             snprintf(time_label, sizeof(time_label), "%d.5h", minutes_ago / 60);
         }
         graphics_context_set_text_color(ctx, GColorBlack);
-        graphics_draw_text(ctx, time_label,
-                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                           GRect(0, y - 7, 28, 14),
-                           GTextOverflowModeTrailingEllipsis,
-                           GTextAlignmentRight, NULL);
+        if (s_invert_y) {
+            graphics_draw_text(ctx, time_label,
+                               fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                               GRect(CHART_WIDTH + 2, y - 7, 28, 14),
+                               GTextOverflowModeTrailingEllipsis,
+                               GTextAlignmentLeft, NULL);
+        } else {
+            graphics_draw_text(ctx, time_label,
+                               fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                               GRect(0, y - 7, 28, 14),
+                               GTextOverflowModeTrailingEllipsis,
+                               GTextAlignmentRight, NULL);
+        }
     }
 }
 
@@ -316,12 +337,13 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
 
     int label_w = 30;
     int label_h = 16;
+    int left = chart_left();
 
     /* --- minimum --- */
     {
         int px = clamp_x(bg_to_x(min_val, min_bg, bg_range));
         int py = index_to_y(min_idx);
-        int lx = (px + label_w + 4 > CHART_START_X + CHART_WIDTH)
+        int lx = (px + label_w + 4 > left + CHART_WIDTH)
                      ? px - label_w - 4
                      : px + 4;
         int ly = py - label_h / 2;
@@ -338,7 +360,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     {
         int px = clamp_x(bg_to_x(max_val, min_bg, bg_range));
         int py = index_to_y(max_idx);
-        int lx = (px + label_w + 4 > CHART_START_X + CHART_WIDTH)
+        int lx = (px + label_w + 4 > left + CHART_WIDTH)
                      ? px - label_w - 4
                      : px + 4;
         int ly = py - label_h / 2;
