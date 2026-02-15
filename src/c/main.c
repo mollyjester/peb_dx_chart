@@ -74,8 +74,8 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     
     // Draw background grid with fixed reference points
     // Fixed points: 4, 10, 20 mmol/L (or 70, 180, 360 mg/dL)
-    static const int fixed_mmol[] = {40, 100, 200};  // x10
-    static const int fixed_mgdl[] = {70, 180, 360};  // x10
+    static const int fixed_mmol[] = {40, 100, 200};  // values x10: 4.0, 10.0, 20.0 mmol/L
+    static const int fixed_mgdl[] = {70, 180, 360};  // values x10: 70, 180, 360 mg/dL
     static const char *labels_mmol[] = {"4", "10", "20"};
     static const char *labels_mgdl[] = {"70", "180", "360"};
     int num_fixed = 3;
