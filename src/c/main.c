@@ -7,7 +7,7 @@
 #define CHART_WIDTH 114     // 144 - 30
 #define CHART_HEIGHT 148    // 168 - 20 (status bar)
 #define MIN_VALUE 40        // Minimum BG value to display (mg/dL)
-#define MAX_VALUE 400       // Maximum BG value to display (mg/dL)
+#define MAX_VALUE 360       // Maximum BG value to display (mg/dL)
 #define TIME_SPACING 4      // Pixels between readings vertically
 
 // Message buffer sizes
@@ -29,6 +29,7 @@ static GlucoseReading s_readings[MAX_READINGS];
 static int s_reading_count = 0;
 static int s_expected_count = 0;
 static int s_received_count = 0;
+static bool s_receiving_data = false;
 static bool s_is_mmol = false;
 static char s_bg_units[10] = "mg/dL";
 static char s_status_text[32] = "Loading...";
@@ -42,14 +43,25 @@ static void request_data(void);
  */
 static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     if (s_reading_count == 0) {
-        // Draw "No data" message
-        graphics_context_set_text_color(ctx, GColorWhite);
-        graphics_draw_text(ctx, "No data\nOpen settings\non phone", 
-                          fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
-                          GRect(0, 50, 144, 70),
-                          GTextOverflowModeWordWrap,
-                          GTextAlignmentCenter,
-                          NULL);
+        if (s_receiving_data) {
+            // Show loading message while receiving first batch of data
+            graphics_context_set_text_color(ctx, GColorWhite);
+            graphics_draw_text(ctx, "Loading...", 
+                              fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                              GRect(0, 60, 144, 30),
+                              GTextOverflowModeWordWrap,
+                              GTextAlignmentCenter,
+                              NULL);
+        } else {
+            // Draw "No data" message
+            graphics_context_set_text_color(ctx, GColorWhite);
+            graphics_draw_text(ctx, "No data\nOpen settings\non phone", 
+                              fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD),
+                              GRect(0, 50, 144, 70),
+                              GTextOverflowModeWordWrap,
+                              GTextAlignmentCenter,
+                              NULL);
+        }
         return;
     }
     
@@ -57,29 +69,37 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     
     // Calculate scaling using cached unit type
     int min_bg = s_is_mmol ? 20 : MIN_VALUE; // 2.0 mmol/L or 40 mg/dL
-    int max_bg = s_is_mmol ? 220 : MAX_VALUE; // 22.0 mmol/L or 400 mg/dL
+    int max_bg = s_is_mmol ? 200 : MAX_VALUE; // 20.0 mmol/L or 360 mg/dL
     int bg_range = max_bg - min_bg;
     
-    // Draw background grid
-    graphics_context_set_stroke_color(ctx, GColorDarkGray);
+    // Draw background grid with fixed reference points
+    // Fixed points: 4, 10, 20 mmol/L (or 70, 180, 360 mg/dL)
+    static const int fixed_mmol[] = {40, 100, 200};  // values x10: 4.0, 10.0, 20.0 mmol/L
+    static const int fixed_mgdl[] = {70, 180, 360};  // values x10: 70, 180, 360 mg/dL
+    static const char *labels_mmol[] = {"4", "10", "20"};
+    static const char *labels_mgdl[] = {"70", "180", "360"};
+    int num_fixed = 3;
     
-    // Vertical grid lines (every 50 mg/dL or 3 mmol/L)
-    int grid_step = s_is_mmol ? 30 : 50; // 3.0 mmol/L or 50 mg/dL
-    for (int bg = min_bg; bg <= max_bg; bg += grid_step) {
+    for (int f = 0; f < num_fixed; f++) {
+        int bg = s_is_mmol ? fixed_mmol[f] : fixed_mgdl[f];
         int x = CHART_START_X + ((bg - min_bg) * CHART_WIDTH) / bg_range;
-        graphics_draw_line(ctx, GPoint(x, CHART_START_Y), GPoint(x, CHART_START_Y + CHART_HEIGHT));
+        
+        if (x < CHART_START_X || x > CHART_START_X + CHART_WIDTH) continue;
+        
+        // Draw dashed vertical line from top to bottom
+        graphics_context_set_stroke_color(ctx, GColorDarkGray);
+        for (int y = CHART_START_Y; y <= CHART_START_Y + CHART_HEIGHT; y += 4) {
+            int y_end = y + 2;
+            if (y_end > CHART_START_Y + CHART_HEIGHT) y_end = CHART_START_Y + CHART_HEIGHT;
+            graphics_draw_line(ctx, GPoint(x, y), GPoint(x, y_end));
+        }
         
         // Draw value labels at top
-        static char label[8];
-        if (s_is_mmol) {
-            snprintf(label, sizeof(label), "%.0f", bg / 10.0);
-        } else {
-            snprintf(label, sizeof(label), "%d", bg / 10);
-        }
+        const char *label = s_is_mmol ? labels_mmol[f] : labels_mgdl[f];
         graphics_context_set_text_color(ctx, GColorWhite);
         graphics_draw_text(ctx, label,
                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                          GRect(x - 10, 0, 20, 14),
+                          GRect(x - 15, 0, 30, 14),
                           GTextOverflowModeTrailingEllipsis,
                           GTextAlignmentCenter,
                           NULL);
@@ -93,10 +113,18 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
         if (y >= CHART_START_Y && y <= CHART_START_Y + CHART_HEIGHT) {
             graphics_draw_line(ctx, GPoint(CHART_START_X, y), GPoint(CHART_START_X + CHART_WIDTH, y));
             
-            // Draw time labels (minutes ago from most recent)
+            // Draw time labels in hours (except 30m)
             int minutes_ago = i * 5; // Each reading is 5 minutes
             static char time_label[8];
-            snprintf(time_label, sizeof(time_label), "-%dm", minutes_ago);
+            if (minutes_ago == 0) {
+                snprintf(time_label, sizeof(time_label), "now");
+            } else if (minutes_ago == 30) {
+                snprintf(time_label, sizeof(time_label), "30m");
+            } else if (minutes_ago % 60 == 0) {
+                snprintf(time_label, sizeof(time_label), "%dh", minutes_ago / 60);
+            } else {
+                snprintf(time_label, sizeof(time_label), "%d.5h", minutes_ago / 60);
+            }
             graphics_context_set_text_color(ctx, GColorWhite);
             graphics_draw_text(ctx, time_label,
                               fonts_get_system_font(FONT_KEY_GOTHIC_14),
@@ -224,9 +252,9 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     if (count_tuple) {
         int count = count_tuple->value->int32;
         if (count > MAX_READINGS) count = MAX_READINGS;
-        s_reading_count = count;
         s_expected_count = count;
         s_received_count = 0;
+        s_receiving_data = true;
         
         // Reset readings array
         memset(s_readings, 0, sizeof(s_readings));
@@ -244,6 +272,8 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
             
             // Only update chart after all readings are received
             if (s_received_count >= s_expected_count) {
+                s_reading_count = s_expected_count;
+                s_receiving_data = false;
                 update_chart();
             }
         }
