@@ -7,3 +7,4 @@ src/js/
 .DS_Store
 *.swp
 *~
+_codeql_detected_source_root
