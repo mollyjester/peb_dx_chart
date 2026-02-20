@@ -150,8 +150,7 @@ function sendGlucoseData(cache) {
     /* Send header first */
     Pebble.sendAppMessage({
         'BG_COUNT': count,
-        'BG_UNITS': bgUnits,
-        'INVERT_Y': appSettings.INVERT_Y ? 1 : 0
+        'BG_UNITS': bgUnits
     }, function() {
         console.log('Sent BG count: ' + count);
         /* Send chunks after header ACK */

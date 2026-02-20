@@ -10,6 +10,7 @@ A Pebble watch app that displays a continuous glucose monitoring (CGM) chart fro
 - **Threshold Lines**: Shows safe range boundaries (70-180 mg/dL or 4-10 mmol/L)
 - **Auto-Refresh**: Automatically fetches new data every 5 minutes
 - **Configurable Settings**: Set Dexcom credentials and choose units (mg/dL or mmol/L)
+- **Wrist Orientation**: Automatically handled by firmware — no app configuration needed
 
 ## Installation
 
