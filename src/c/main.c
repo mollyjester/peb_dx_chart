@@ -47,7 +47,6 @@ static int  s_expected_count  = 0;
 static int  s_received_count  = 0;
 static bool s_receiving_data  = false;
 static bool s_is_mmol         = false;
-static bool s_invert_y        = false;
 static char s_bg_units[10]    = "mg/dL";
 static char s_status_text[32] = "Loading...";
 
@@ -59,40 +58,26 @@ static void request_data(void);
  * Chart-drawing helpers
  * --------------------------------------------------------------------------- */
 
-/** Return the left edge of the chart area (depends on inversion). */
-static int chart_left(void) {
-    return s_invert_y ? 0 : CHART_START_X;
-}
-
 /** Map a BG value to an x-pixel coordinate within the chart area. */
 static int bg_to_x(int bg_value, int min_bg, int bg_range) {
-    int left = chart_left();
-    if (s_invert_y) {
-        return left + CHART_WIDTH - ((bg_value - min_bg) * CHART_WIDTH) / bg_range;
-    }
-    return left + ((bg_value - min_bg) * CHART_WIDTH) / bg_range;
+    return CHART_START_X + ((bg_value - min_bg) * CHART_WIDTH) / bg_range;
 }
 
 /** Map a reading index to a y-pixel coordinate (index 0 = bottom / newest). */
 static int index_to_y(int index) {
-    if (s_invert_y) {
-        return CHART_START_Y + (index * TIME_SPACING);
-    }
     return CHART_START_Y + CHART_HEIGHT - (index * TIME_SPACING);
 }
 
 /** Clamp an x value to the visible chart area. */
 static int clamp_x(int x) {
-    int left = chart_left();
-    if (x < left) return left;
-    if (x > left + CHART_WIDTH) return left + CHART_WIDTH;
+    if (x < CHART_START_X) return CHART_START_X;
+    if (x > CHART_START_X + CHART_WIDTH) return CHART_START_X + CHART_WIDTH;
     return x;
 }
 
 /** Return true when x falls inside the visible chart area. */
 static bool x_in_bounds(int x) {
-    int left = chart_left();
-    return x >= left && x <= left + CHART_WIDTH;
+    return x >= CHART_START_X && x <= CHART_START_X + CHART_WIDTH;
 }
 
 /**
@@ -153,7 +138,7 @@ static int choose_grid_step(int bg_range) {
 }
 
 /**
- * Draw a grid line label at the top (or bottom when inverted) of the chart.
+ * Draw a grid line label at the top of the chart.
  */
 static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
     int x = bg_to_x(bg, min_bg, bg_range);
@@ -166,7 +151,7 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
         snprintf(label, sizeof(label), "%d", bg);
     }
 
-    int label_y = s_invert_y ? (CHART_HEIGHT - 14) : 0;
+    int label_y = 0;
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, label,
                        fonts_get_system_font(FONT_KEY_GOTHIC_14),
@@ -222,16 +207,15 @@ static void draw_value_grid(GContext *ctx, int min_bg, int bg_range) {
 }
 
 /**
- * Draw the horizontal time-grid lines with labels on the left (or right when inverted).
+ * Draw the horizontal time-grid lines with labels on the left.
  */
 static void draw_time_grid(GContext *ctx) {
-    int left = chart_left();
     for (int i = 0; i <= s_reading_count; i += TIME_GRID_INTERVAL) {
         int y = index_to_y(i);
         if (y < CHART_START_Y || y > CHART_START_Y + CHART_HEIGHT) continue;
 
         /* Dotted horizontal grid line */
-        draw_dotted_hline(ctx, y, left, left + CHART_WIDTH);
+        draw_dotted_hline(ctx, y, CHART_START_X, CHART_START_X + CHART_WIDTH);
 
         /* Time label */
         int minutes_ago = i * 5;
@@ -246,19 +230,11 @@ static void draw_time_grid(GContext *ctx) {
             snprintf(time_label, sizeof(time_label), "%d.5h", minutes_ago / 60);
         }
         graphics_context_set_text_color(ctx, GColorBlack);
-        if (s_invert_y) {
-            graphics_draw_text(ctx, time_label,
-                               fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                               GRect(CHART_WIDTH + 2, y - 7, 28, 14),
-                               GTextOverflowModeTrailingEllipsis,
-                               GTextAlignmentLeft, NULL);
-        } else {
-            graphics_draw_text(ctx, time_label,
-                               fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                               GRect(0, y - 7, 28, 14),
-                               GTextOverflowModeTrailingEllipsis,
-                               GTextAlignmentRight, NULL);
-        }
+        graphics_draw_text(ctx, time_label,
+                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                           GRect(0, y - 7, 28, 14),
+                           GTextOverflowModeTrailingEllipsis,
+                           GTextAlignmentRight, NULL);
     }
 }
 
@@ -337,14 +313,12 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
 
     int label_w = 30;
     int label_h = 16;
-    int left = chart_left();
-    int right_edge = left + CHART_WIDTH;
+    int right_edge = CHART_START_X + CHART_WIDTH;
 
     /* --- helper: compute label x so label sits on the empty side --- */
     /* For the minimum value the empty space is toward lower BG values;
        for the maximum it is toward higher BG values.
-       In normal (non-inverted) mode lower BG maps to left, higher to right.
-       In inverted mode the mapping is reversed. */
+       Lower BG maps to left, higher to right. */
     #define OFFSET 4  /* gap between data point and label edge */
 
     /* --- minimum label position --- */
@@ -352,16 +326,9 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     int min_py = index_to_y(min_idx);
     int min_lx, min_ly;
 
-    /* Place min label toward lower-value side (away from chart data) */
-    if (s_invert_y) {
-        /* inverted: lower values are to the right */
-        min_lx = min_px + OFFSET;
-        if (min_lx + label_w > right_edge) min_lx = min_px - label_w - OFFSET;
-    } else {
-        /* normal: lower values are to the left */
-        min_lx = min_px - label_w - OFFSET;
-        if (min_lx < left) min_lx = min_px + OFFSET;
-    }
+    /* Place min label toward lower-value side (left) */
+    min_lx = min_px - label_w - OFFSET;
+    if (min_lx < CHART_START_X) min_lx = min_px + OFFSET;
     min_ly = min_py - label_h / 2;
 
     /* --- maximum label position --- */
@@ -369,16 +336,9 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     int max_py = index_to_y(max_idx);
     int max_lx, max_ly;
 
-    /* Place max label toward higher-value side (away from chart data) */
-    if (s_invert_y) {
-        /* inverted: higher values are to the left */
-        max_lx = max_px - label_w - OFFSET;
-        if (max_lx < left) max_lx = max_px + OFFSET;
-    } else {
-        /* normal: higher values are to the right */
-        max_lx = max_px + OFFSET;
-        if (max_lx + label_w > right_edge) max_lx = max_px - label_w - OFFSET;
-    }
+    /* Place max label toward higher-value side (right) */
+    max_lx = max_px + OFFSET;
+    if (max_lx + label_w > right_edge) max_lx = max_px - label_w - OFFSET;
     max_ly = max_py - label_h / 2;
 
     #undef OFFSET
@@ -534,16 +494,11 @@ static void inbox_received_callback(DictionaryIterator *iterator,
     Tuple *chunk_tuple     = dict_find(iterator, MESSAGE_KEY_BG_CHUNK);
     Tuple *value_tuple     = dict_find(iterator, MESSAGE_KEY_BG_VALUE);
     Tuple *timestamp_tuple = dict_find(iterator, MESSAGE_KEY_BG_TIMESTAMP);
-    Tuple *invert_tuple    = dict_find(iterator, MESSAGE_KEY_INVERT_Y);
 
     if (units_tuple) {
         snprintf(s_bg_units, sizeof(s_bg_units), "%s",
                  units_tuple->value->cstring);
         s_is_mmol = (strcmp(s_bg_units, "mmol/L") == 0);
-    }
-
-    if (invert_tuple) {
-        s_invert_y = (invert_tuple->value->int32 != 0);
     }
 
     if (count_tuple) {
