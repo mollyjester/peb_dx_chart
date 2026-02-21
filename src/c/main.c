@@ -47,7 +47,7 @@ static GlucoseReading s_readings[MAX_READINGS];
 static int  s_reading_count   = 0;
 static int  s_expected_count  = 0;
 static int  s_received_count  = 0;
-static bool s_receiving_data  = false;
+static bool s_receiving_data  = true;
 static bool s_is_mmol         = false;
 static char s_bg_units[10]    = "mg/dL";
 
@@ -207,6 +207,20 @@ static void draw_time_grid(GContext *ctx, time_t now) {
         /* Dotted horizontal grid line */
         draw_dotted_hline(ctx, y, CHART_START_X + GRID_PADDING,
                           CHART_START_X + CHART_WIDTH - GRID_PADDING);
+    }
+
+    /* Draw solid time axis line on the left edge of the chart */
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_draw_line(ctx,
+                       GPoint(CHART_START_X + GRID_PADDING,
+                              CHART_START_Y + GRID_PADDING),
+                       GPoint(CHART_START_X + GRID_PADDING,
+                              CHART_START_Y + CHART_HEIGHT - GRID_PADDING));
+
+    for (int slot = 0; slot <= MAX_READINGS; slot += TIME_GRID_INTERVAL) {
+        int minutes_ago = slot * 5;
+        int y = timestamp_to_y(now - minutes_ago * 60, now);
+        if (y < CHART_START_Y || y > CHART_START_Y + CHART_HEIGHT) continue;
 
         /* Time label – skip index 0 because the glucose-axis "0" already
            occupies the bottom-left corner (origin of both axes). */
@@ -323,8 +337,9 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range,
     int min_lx, min_ly;
 
     /* Place min label toward lower-value side (left) */
+    int left_edge = CHART_START_X + GRID_PADDING;
     min_lx = min_px - label_w - OFFSET;
-    if (min_lx < CHART_START_X) min_lx = min_px + OFFSET;
+    if (min_lx < left_edge) min_lx = min_px + OFFSET;
     if (min_lx + label_w > right_edge) min_lx = right_edge - label_w;
     min_ly = min_py - label_h / 2;
 
@@ -336,7 +351,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range,
     /* Place max label toward higher-value side (right) */
     max_lx = max_px + OFFSET;
     if (max_lx + label_w > right_edge) max_lx = max_px - label_w - OFFSET;
-    if (max_lx < CHART_START_X) max_lx = CHART_START_X;
+    if (max_lx < left_edge) max_lx = left_edge;
     max_ly = max_py - label_h / 2;
 
     #undef OFFSET
@@ -367,9 +382,9 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range,
         }
     }
 
-    /* Clamp both labels to the visible chart area (below grid labels) */
-    int top_limit = CHART_START_Y;  /* avoid overlapping grid labels at top */
-    int bot_limit = CHART_START_Y + CHART_HEIGHT - label_h;
+    /* Clamp both labels to the visible chart area, within axis boundaries */
+    int top_limit = CHART_START_Y + GRID_PADDING;
+    int bot_limit = CHART_START_Y + CHART_HEIGHT - GRID_PADDING - label_h;
 
     if (min_ly < top_limit) min_ly = top_limit;
     if (min_ly > bot_limit) min_ly = bot_limit;
@@ -385,14 +400,20 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range,
     graphics_fill_circle(ctx, GPoint(min_px, min_py), 1);
     graphics_fill_circle(ctx, GPoint(max_px, max_py), 1);
 
-    /* --- draw minimum label --- */
+    /* --- draw minimum label with white background rectangle --- */
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx, GRect(min_lx, min_ly, label_w, label_h),
+                       0, GCornerNone);
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, min_label, font,
                        GRect(min_lx, min_ly, label_w, label_h),
                        GTextOverflowModeTrailingEllipsis,
                        GTextAlignmentCenter, NULL);
 
-    /* --- draw maximum label --- */
+    /* --- draw maximum label with white background rectangle --- */
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_rect(ctx, GRect(max_lx, max_ly, label_w, label_h),
+                       0, GCornerNone);
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, max_label, font,
                        GRect(max_lx, max_ly, label_w, label_h),
