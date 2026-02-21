@@ -7,7 +7,7 @@
 #define CHART_START_X      30   /* Left margin for time labels */
 #define CHART_START_Y      10   /* Top margin for value labels */
 #define CHART_WIDTH       114   /* 144 - 30 */
-#define CHART_HEIGHT      148   /* 168 - 20 (status bar) */
+#define CHART_HEIGHT      134   /* 148 - 14; leaves 14 px at bottom for glucose-axis labels */
 #define TIME_SPACING        4   /* Pixels between readings vertically */
 
 /* Dotted-line pattern: draw DOT_ON pixels, skip DOT_OFF pixels */
@@ -335,13 +335,13 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     if (max_ly > bot_limit) max_ly = bot_limit;
 
     /* --- draw hollow dots at extremum points --- */
-    /* Fill with white first to erase the data-point dot underneath */
+    /* Draw hollow extremum dot: black fill radius 6, white fill radius 2 */
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_fill_circle(ctx, GPoint(min_px, min_py), 6);
+    graphics_fill_circle(ctx, GPoint(max_px, max_py), 6);
     graphics_context_set_fill_color(ctx, GColorWhite);
-    graphics_fill_circle(ctx, GPoint(min_px, min_py), 4);
-    graphics_fill_circle(ctx, GPoint(max_px, max_py), 4);
-    graphics_context_set_stroke_color(ctx, GColorBlack);
-    graphics_draw_circle(ctx, GPoint(min_px, min_py), 4);
-    graphics_draw_circle(ctx, GPoint(max_px, max_py), 4);
+    graphics_fill_circle(ctx, GPoint(min_px, min_py), 2);
+    graphics_fill_circle(ctx, GPoint(max_px, max_py), 2);
 
     /* --- draw minimum label --- */
     graphics_context_set_text_color(ctx, GColorBlack);
