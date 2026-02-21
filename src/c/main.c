@@ -136,20 +136,22 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
 /**
  * Draw the vertical value-reference grid lines with labels at the top.
  * Uses 5 fixed values: 0, 4, 10, 15, 20 (mmol/L) or 0, 72, 180, 270, 360 (mg/dL).
- * The clinical threshold at 4.0 mmol/L (72 mg/dL) is drawn as a solid line.
+ * The clinical thresholds at 4.0 mmol/L (72 mg/dL) and 10.0 mmol/L (180 mg/dL)
+ * are drawn as solid lines.
  */
 static void draw_value_grid(GContext *ctx, int min_bg, int bg_range) {
     /* Fixed grid values */
     static const int mmol_grid[] = {0, 40, 100, 150, 200};
     static const int mgdl_grid[] = {0, 72, 180, 270, 360};
     const int *grid = s_is_mmol ? mmol_grid : mgdl_grid;
-    int threshold = s_is_mmol ? 40 : 72;  /* 4.0 mmol/L or 72 mg/dL */
+    int threshold_lo = s_is_mmol ?  40 :  72;  /* 4.0 mmol/L or  72 mg/dL */
+    int threshold_hi = s_is_mmol ? 100 : 180;  /* 10.0 mmol/L or 180 mg/dL */
 
     for (int i = 0; i < 5; i++) {
         int x = bg_to_x(grid[i], min_bg, bg_range);
         if (!x_in_bounds(x)) continue;
 
-        if (grid[i] == threshold) {
+        if (grid[i] == threshold_lo || grid[i] == threshold_hi) {
             draw_solid_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
         } else {
             draw_dotted_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
@@ -332,10 +334,10 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     if (max_ly < top_limit) max_ly = top_limit;
     if (max_ly > bot_limit) max_ly = bot_limit;
 
-    /* --- draw bolder dots at extremum points --- */
-    graphics_context_set_fill_color(ctx, GColorBlack);
-    graphics_fill_circle(ctx, GPoint(min_px, min_py), 4);
-    graphics_fill_circle(ctx, GPoint(max_px, max_py), 4);
+    /* --- draw hollow dots at extremum points --- */
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_draw_circle(ctx, GPoint(min_px, min_py), 4);
+    graphics_draw_circle(ctx, GPoint(max_px, max_py), 4);
 
     /* --- draw minimum label --- */
     graphics_context_set_text_color(ctx, GColorBlack);
