@@ -7,7 +7,7 @@
 #define CHART_START_X      30   /* Left margin for time labels */
 #define CHART_START_Y      10   /* Top margin for value labels */
 #define CHART_WIDTH       114   /* 144 - 30 */
-#define CHART_HEIGHT      148   /* 168 - 20; leaves 20 px at bottom for glucose-axis labels */
+#define CHART_HEIGHT      138   /* 168 - 10 - 20; leaves 20 px at bottom for glucose-axis labels */
 #define TIME_SPACING        4   /* Pixels between readings vertically */
 
 /* Dotted-line pattern: draw DOT_ON pixels, skip DOT_OFF pixels */
@@ -140,7 +140,9 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
     if (!x_in_bounds(x)) return;
 
     static char label[12];
-    if (s_is_mmol) {
+    if (bg == 0) {
+        snprintf(label, sizeof(label), "0");
+    } else if (s_is_mmol) {
         snprintf(label, sizeof(label), "%d.%d", bg / 10, bg % 10);
     } else {
         snprintf(label, sizeof(label), "%d", bg);
