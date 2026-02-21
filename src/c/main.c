@@ -18,6 +18,13 @@
 /* Time-grid interval in readings (6 readings = 30 minutes) */
 #define TIME_GRID_INTERVAL  6
 
+/* Maximum gap between consecutive readings (in seconds) before
+   breaking the glucose line.  Two missed 5-minute readings → 10 min. */
+#define MAX_GAP_SECONDS   600
+
+/* Padding inside the chart area so edge data points are not clipped */
+#define GRID_PADDING        2
+
 /* Message buffer sizes */
 #define APPMESSAGE_INBOX  2048
 #define APPMESSAGE_OUTBOX  128
@@ -54,26 +61,34 @@ static void request_data(void);
  * Chart-drawing helpers
  * --------------------------------------------------------------------------- */
 
-/** Map a BG value to an x-pixel coordinate within the chart area. */
+/** Map a BG value to an x-pixel coordinate within the padded chart area. */
 static int bg_to_x(int bg_value, int min_bg, int bg_range) {
-    return CHART_START_X + ((bg_value - min_bg) * CHART_WIDTH) / bg_range;
+    int usable = CHART_WIDTH - 2 * GRID_PADDING;
+    return CHART_START_X + GRID_PADDING +
+           ((bg_value - min_bg) * usable) / bg_range;
 }
 
-/** Map a reading index to a y-pixel coordinate (index 0 = bottom / newest). */
-static int index_to_y(int index) {
-    return CHART_START_Y + CHART_HEIGHT - (index * TIME_SPACING);
+/** Map a timestamp to a y-pixel coordinate (now = bottom, older = higher). */
+static int timestamp_to_y(time_t ts, time_t now) {
+    int seconds_ago = (int)(now - ts);
+    /* 5 minutes (300 s) = TIME_SPACING pixels */
+    int pixel_offset = (seconds_ago * TIME_SPACING) / 300;
+    return CHART_START_Y + CHART_HEIGHT - GRID_PADDING - pixel_offset;
 }
 
-/** Clamp an x value to the visible chart area. */
+/** Clamp an x value to the padded chart area. */
 static int clamp_x(int x) {
-    if (x < CHART_START_X) return CHART_START_X;
-    if (x > CHART_START_X + CHART_WIDTH) return CHART_START_X + CHART_WIDTH;
+    int lo = CHART_START_X + GRID_PADDING;
+    int hi = CHART_START_X + CHART_WIDTH - GRID_PADDING;
+    if (x < lo) return lo;
+    if (x > hi) return hi;
     return x;
 }
 
-/** Return true when x falls inside the visible chart area. */
+/** Return true when x falls inside the padded chart area. */
 static bool x_in_bounds(int x) {
-    return x >= CHART_START_X && x <= CHART_START_X + CHART_WIDTH;
+    return x >= CHART_START_X + GRID_PADDING &&
+           x <= CHART_START_X + CHART_WIDTH - GRID_PADDING;
 }
 
 /**
@@ -152,9 +167,11 @@ static void draw_value_grid(GContext *ctx, int min_bg, int bg_range) {
         if (!x_in_bounds(x)) continue;
 
         if (grid[i] == threshold_lo || grid[i] == threshold_hi) {
-            draw_solid_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
+            draw_solid_vline(ctx, x, CHART_START_Y + GRID_PADDING,
+                             CHART_START_Y + CHART_HEIGHT - GRID_PADDING);
         } else {
-            draw_dotted_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
+            draw_dotted_vline(ctx, x, CHART_START_Y + GRID_PADDING,
+                              CHART_START_Y + CHART_HEIGHT - GRID_PADDING);
         }
         draw_grid_label(ctx, grid[i], min_bg, bg_range);
     }
@@ -162,19 +179,21 @@ static void draw_value_grid(GContext *ctx, int min_bg, int bg_range) {
 
 /**
  * Draw the horizontal time-grid lines with labels on the left.
+ * Lines are drawn at fixed 30-minute intervals from "now".
  */
-static void draw_time_grid(GContext *ctx) {
-    for (int i = 0; i <= s_reading_count; i += TIME_GRID_INTERVAL) {
-        int y = index_to_y(i);
+static void draw_time_grid(GContext *ctx, time_t now) {
+    for (int slot = 0; slot <= MAX_READINGS; slot += TIME_GRID_INTERVAL) {
+        int minutes_ago = slot * 5;
+        int y = timestamp_to_y(now - minutes_ago * 60, now);
         if (y < CHART_START_Y || y > CHART_START_Y + CHART_HEIGHT) continue;
 
         /* Dotted horizontal grid line */
-        draw_dotted_hline(ctx, y, CHART_START_X, CHART_START_X + CHART_WIDTH);
+        draw_dotted_hline(ctx, y, CHART_START_X + GRID_PADDING,
+                          CHART_START_X + CHART_WIDTH - GRID_PADDING);
 
         /* Time label – skip index 0 because the glucose-axis "0" already
            occupies the bottom-left corner (origin of both axes). */
-        if (i == 0) continue;
-        int minutes_ago = i * 5;
+        if (minutes_ago == 0) continue;
         static char time_label[8];
         if (minutes_ago == 30) {
             snprintf(time_label, sizeof(time_label), "30m");
@@ -194,32 +213,36 @@ static void draw_time_grid(GContext *ctx) {
 
 /**
  * Draw the glucose line graph (line segments + data-point dots).
+ * Uses real timestamps for vertical positioning so gaps in readings
+ * (beginning, middle, or end) are rendered correctly.
+ * Line segments are omitted across gaps larger than MAX_GAP_SECONDS.
  */
-static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range) {
+static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range,
+                              time_t now) {
     graphics_context_set_stroke_color(ctx, GColorBlack);
     graphics_context_set_stroke_width(ctx, 2);
 
-    for (int i = 0; i < s_reading_count - 1; i++) {
-        int x1 = clamp_x(bg_to_x(s_readings[i].value,     min_bg, bg_range));
-        int x2 = clamp_x(bg_to_x(s_readings[i + 1].value, min_bg, bg_range));
-        int y1 = index_to_y(i);
-        int y2 = index_to_y(i + 1);
+    for (int i = 0; i < s_reading_count; i++) {
+        int x = clamp_x(bg_to_x(s_readings[i].value, min_bg, bg_range));
+        int y = timestamp_to_y(s_readings[i].timestamp, now);
 
-        graphics_draw_line(ctx, GPoint(x1, y1), GPoint(x2, y2));
+        /* Draw line segment to the next (older) reading unless there is a
+           gap larger than MAX_GAP_SECONDS between them. */
+        if (i < s_reading_count - 1) {
+            int gap = (int)(s_readings[i].timestamp -
+                            s_readings[i + 1].timestamp);
+            if (gap <= MAX_GAP_SECONDS) {
+                int x2 = clamp_x(bg_to_x(s_readings[i + 1].value,
+                                          min_bg, bg_range));
+                int y2 = timestamp_to_y(s_readings[i + 1].timestamp, now);
+                graphics_draw_line(ctx, GPoint(x, y), GPoint(x2, y2));
+            }
+        }
 
-        graphics_context_set_fill_color(ctx, GColorBlack);
-        graphics_fill_circle(ctx, GPoint(x1, y1), 2);
-    }
-
-    /* Draw the last (oldest) data point */
-    if (s_reading_count > 0) {
-        int last_idx = s_reading_count - 1;
-        int lx = bg_to_x(s_readings[last_idx].value, min_bg, bg_range);
-        int ly = index_to_y(last_idx);
-
-        if (x_in_bounds(lx)) {
+        /* Draw data-point dot (only if inside the visible chart area) */
+        if (y >= CHART_START_Y && y <= CHART_START_Y + CHART_HEIGHT) {
             graphics_context_set_fill_color(ctx, GColorBlack);
-            graphics_fill_circle(ctx, GPoint(lx, ly), 2);
+            graphics_fill_circle(ctx, GPoint(x, y), 2);
         }
     }
 }
@@ -232,7 +255,8 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range) {
  * values.
  * When the two labels are close together vertically they are pushed apart.
  */
-static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
+static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range,
+                                 time_t now) {
     if (s_reading_count < 1) return;
 
     int min_val = s_readings[0].value;
@@ -277,7 +301,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
 
     /* --- minimum label position --- */
     int min_px = clamp_x(bg_to_x(min_val, min_bg, bg_range));
-    int min_py = index_to_y(min_idx);
+    int min_py = timestamp_to_y(s_readings[min_idx].timestamp, now);
     int min_lx, min_ly;
 
     /* Place min label toward lower-value side (left) */
@@ -288,7 +312,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
 
     /* --- maximum label position --- */
     int max_px = clamp_x(bg_to_x(max_val, min_bg, bg_range));
-    int max_py = index_to_y(max_idx);
+    int max_py = timestamp_to_y(s_readings[max_idx].timestamp, now);
     int max_lx, max_ly;
 
     /* Place max label toward higher-value side (right) */
@@ -399,9 +423,11 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
     }
 
     draw_value_grid(ctx, min_bg, bg_range);
-    draw_time_grid(ctx);
-    draw_glucose_line(ctx, min_bg, bg_range);
-    draw_extremum_labels(ctx, min_bg, bg_range);
+
+    time_t now = time(NULL);
+    draw_time_grid(ctx, now);
+    draw_glucose_line(ctx, min_bg, bg_range, now);
+    draw_extremum_labels(ctx, min_bg, bg_range, now);
 }
 
 /* ---------------------------------------------------------------------------
