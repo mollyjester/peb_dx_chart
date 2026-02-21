@@ -111,7 +111,7 @@ static void draw_dotted_hline(GContext *ctx, int y, int x_start, int x_end) {
 }
 
 /**
- * Draw a grid line label at the top of the chart.
+ * Draw a grid line label at the bottom of the chart.
  */
 static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
     int x = bg_to_x(bg, min_bg, bg_range);
@@ -124,7 +124,7 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
         snprintf(label, sizeof(label), "%d", bg);
     }
 
-    int label_y = 0;
+    int label_y = CHART_START_Y + CHART_HEIGHT;
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, label,
                        fonts_get_system_font(FONT_KEY_GOTHIC_14),
@@ -134,7 +134,7 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
 }
 
 /**
- * Draw the vertical value-reference grid lines with labels at the top.
+ * Draw the vertical value-reference grid lines with labels at the bottom.
  * Uses 5 fixed values: 0, 4, 10, 15, 20 (mmol/L) or 0, 72, 180, 270, 360 (mg/dL).
  * The clinical thresholds at 4.0 mmol/L (72 mg/dL) and 10.0 mmol/L (180 mg/dL)
  * are drawn as solid lines.
@@ -171,12 +171,12 @@ static void draw_time_grid(GContext *ctx) {
         /* Dotted horizontal grid line */
         draw_dotted_hline(ctx, y, CHART_START_X, CHART_START_X + CHART_WIDTH);
 
-        /* Time label */
+        /* Time label – skip index 0 because the glucose-axis "0" already
+           occupies the bottom-left corner (origin of both axes). */
+        if (i == 0) continue;
         int minutes_ago = i * 5;
         static char time_label[8];
-        if (minutes_ago == 0) {
-            snprintf(time_label, sizeof(time_label), "now");
-        } else if (minutes_ago == 30) {
+        if (minutes_ago == 30) {
             snprintf(time_label, sizeof(time_label), "30m");
         } else if (minutes_ago % 60 == 0) {
             snprintf(time_label, sizeof(time_label), "%dh", minutes_ago / 60);
@@ -335,6 +335,10 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     if (max_ly > bot_limit) max_ly = bot_limit;
 
     /* --- draw hollow dots at extremum points --- */
+    /* Fill with white first to erase the data-point dot underneath */
+    graphics_context_set_fill_color(ctx, GColorWhite);
+    graphics_fill_circle(ctx, GPoint(min_px, min_py), 4);
+    graphics_fill_circle(ctx, GPoint(max_px, max_py), 4);
     graphics_context_set_stroke_color(ctx, GColorBlack);
     graphics_draw_circle(ctx, GPoint(min_px, min_py), 4);
     graphics_draw_circle(ctx, GPoint(max_px, max_py), 4);
