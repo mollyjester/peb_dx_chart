@@ -7,7 +7,7 @@
 #define CHART_START_X      30   /* Left margin for time labels */
 #define CHART_START_Y      10   /* Top margin for value labels */
 #define CHART_WIDTH       114   /* 144 - 30 */
-#define CHART_HEIGHT      134   /* 148 - 14; leaves 14 px at bottom for glucose-axis labels */
+#define CHART_HEIGHT      148   /* 168 - 20; leaves 20 px at bottom for glucose-axis labels */
 #define TIME_SPACING        4   /* Pixels between readings vertically */
 
 /* Dotted-line pattern: draw DOT_ON pixels, skip DOT_OFF pixels */
@@ -37,7 +37,6 @@
  * --------------------------------------------------------------------------- */
 static Window    *s_main_window;
 static Layer     *s_chart_layer;
-static TextLayer *s_status_layer;
 
 typedef struct {
     int16_t value;      /* BG value x10 for mmol/L precision (e.g. 123 mg/dL = 1230) */
@@ -51,7 +50,6 @@ static int  s_received_count  = 0;
 static bool s_receiving_data  = false;
 static bool s_is_mmol         = false;
 static char s_bg_units[10]    = "mg/dL";
-static char s_status_text[32] = "Loading...";
 
 /* Forward declarations */
 static void update_chart(void);
@@ -83,6 +81,15 @@ static int clamp_x(int x) {
     if (x < lo) return lo;
     if (x > hi) return hi;
     return x;
+}
+
+/** Clamp a y value to the padded chart area. */
+static int clamp_y(int y) {
+    int lo = CHART_START_Y + GRID_PADDING;
+    int hi = CHART_START_Y + CHART_HEIGHT - GRID_PADDING;
+    if (y < lo) return lo;
+    if (y > hi) return hi;
+    return y;
 }
 
 /** Return true when x falls inside the padded chart area. */
@@ -132,7 +139,7 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
     int x = bg_to_x(bg, min_bg, bg_range);
     if (!x_in_bounds(x)) return;
 
-    static char label[8];
+    static char label[12];
     if (s_is_mmol) {
         snprintf(label, sizeof(label), "%d.%d", bg / 10, bg % 10);
     } else {
@@ -175,6 +182,14 @@ static void draw_value_grid(GContext *ctx, int min_bg, int bg_range) {
         }
         draw_grid_label(ctx, grid[i], min_bg, bg_range);
     }
+
+    /* Draw glucose values axis line at the bottom of the chart area */
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    graphics_draw_line(ctx,
+                       GPoint(CHART_START_X + GRID_PADDING,
+                              CHART_START_Y + CHART_HEIGHT - GRID_PADDING),
+                       GPoint(CHART_START_X + CHART_WIDTH - GRID_PADDING,
+                              CHART_START_Y + CHART_HEIGHT - GRID_PADDING));
 }
 
 /**
@@ -224,7 +239,7 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range,
 
     for (int i = 0; i < s_reading_count; i++) {
         int x = clamp_x(bg_to_x(s_readings[i].value, min_bg, bg_range));
-        int y = timestamp_to_y(s_readings[i].timestamp, now);
+        int y = clamp_y(timestamp_to_y(s_readings[i].timestamp, now));
 
         /* Draw line segment to the next (older) reading unless there is a
            gap larger than MAX_GAP_SECONDS between them. */
@@ -234,13 +249,14 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range,
             if (gap <= MAX_GAP_SECONDS) {
                 int x2 = clamp_x(bg_to_x(s_readings[i + 1].value,
                                           min_bg, bg_range));
-                int y2 = timestamp_to_y(s_readings[i + 1].timestamp, now);
+                int y2 = clamp_y(timestamp_to_y(s_readings[i + 1].timestamp, now));
                 graphics_draw_line(ctx, GPoint(x, y), GPoint(x2, y2));
             }
         }
 
         /* Draw data-point dot (only if inside the visible chart area) */
-        if (y >= CHART_START_Y && y <= CHART_START_Y + CHART_HEIGHT) {
+        if (y >= CHART_START_Y + GRID_PADDING &&
+            y <= CHART_START_Y + CHART_HEIGHT - GRID_PADDING) {
             graphics_context_set_fill_color(ctx, GColorBlack);
             graphics_fill_circle(ctx, GPoint(x, y), 2);
         }
@@ -276,8 +292,8 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range,
     }
 
     /* Format value string – mmol/L uses one decimal place */
-    static char min_label[8];
-    static char max_label[8];
+    static char min_label[12];
+    static char max_label[12];
 
     if (s_is_mmol) {
         snprintf(min_label, sizeof(min_label), "%d.%d", min_val / 10, min_val % 10);
@@ -359,13 +375,13 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range,
     if (max_ly > bot_limit) max_ly = bot_limit;
 
     /* --- draw hollow dots at extremum points --- */
-    /* Draw hollow extremum dot: black fill radius 6, white fill radius 2 */
+    /* Draw hollow extremum dot: black fill radius 4, white fill radius 1 */
     graphics_context_set_fill_color(ctx, GColorBlack);
-    graphics_fill_circle(ctx, GPoint(min_px, min_py), 6);
-    graphics_fill_circle(ctx, GPoint(max_px, max_py), 6);
+    graphics_fill_circle(ctx, GPoint(min_px, min_py), 4);
+    graphics_fill_circle(ctx, GPoint(max_px, max_py), 4);
     graphics_context_set_fill_color(ctx, GColorWhite);
-    graphics_fill_circle(ctx, GPoint(min_px, min_py), 2);
-    graphics_fill_circle(ctx, GPoint(max_px, max_py), 2);
+    graphics_fill_circle(ctx, GPoint(min_px, min_py), 1);
+    graphics_fill_circle(ctx, GPoint(max_px, max_py), 1);
 
     /* --- draw minimum label --- */
     graphics_context_set_text_color(ctx, GColorBlack);
@@ -434,22 +450,11 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
  * Chart / status refresh
  * --------------------------------------------------------------------------- */
 
-/** Mark the chart layer dirty and refresh the status bar text. */
+/** Mark the chart layer dirty to trigger a redraw. */
 static void update_chart(void) {
     if (s_chart_layer) {
         layer_mark_dirty(s_chart_layer);
     }
-
-    if (s_reading_count > 0) {
-        time_t now = time(NULL);
-        int minutes_ago = (int)((now - s_readings[0].timestamp) / 60);
-        snprintf(s_status_text, sizeof(s_status_text),
-                 "%d readings, %dm ago", s_reading_count, minutes_ago);
-    } else {
-        snprintf(s_status_text, sizeof(s_status_text), "No data");
-    }
-
-    text_layer_set_text(s_status_layer, s_status_text);
 }
 
 /* ---------------------------------------------------------------------------
@@ -566,24 +571,13 @@ static void main_window_load(Window *window) {
     Layer *window_layer = window_get_root_layer(window);
     GRect bounds = layer_get_bounds(window_layer);
 
-    s_chart_layer = layer_create(GRect(0, 0, bounds.size.w, bounds.size.h - 20));
+    s_chart_layer = layer_create(GRect(0, 0, bounds.size.w, bounds.size.h));
     layer_set_update_proc(s_chart_layer, chart_layer_update_proc);
     layer_add_child(window_layer, s_chart_layer);
-
-    s_status_layer = text_layer_create(
-        GRect(0, bounds.size.h - 20, bounds.size.w, 20));
-    text_layer_set_background_color(s_status_layer, GColorWhite);
-    text_layer_set_text_color(s_status_layer, GColorBlack);
-    text_layer_set_font(s_status_layer,
-                        fonts_get_system_font(FONT_KEY_GOTHIC_14));
-    text_layer_set_text_alignment(s_status_layer, GTextAlignmentCenter);
-    text_layer_set_text(s_status_layer, s_status_text);
-    layer_add_child(window_layer, text_layer_get_layer(s_status_layer));
 }
 
 static void main_window_unload(Window *window) {
     layer_destroy(s_chart_layer);
-    text_layer_destroy(s_status_layer);
 }
 
 /* ---------------------------------------------------------------------------
