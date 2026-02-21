@@ -18,10 +18,6 @@
 /* Time-grid interval in readings (6 readings = 30 minutes) */
 #define TIME_GRID_INTERVAL  6
 
-/* Auto-scaling constants */
-#define BG_PADDING         10   /* Padding in internal units (±1 mg/dL or ±0.1 mmol/L) */
-#define BG_MIN_RANGE       30   /* Minimum visible range in internal units */
-
 /* Message buffer sizes */
 #define APPMESSAGE_INBOX  2048
 #define APPMESSAGE_OUTBOX  128
@@ -115,29 +111,6 @@ static void draw_dotted_hline(GContext *ctx, int y, int x_start, int x_end) {
 }
 
 /**
- * Choose a nice grid step that produces 1–3 lines within the given range.
- */
-static int choose_grid_step(int bg_range) {
-    if (s_is_mmol) {
-        /* mmol/L internal values are ×10; steps represent 1.0, 2.0, 5.0 mmol/L */
-        static const int steps[] = {10, 20, 50};
-        for (int i = 0; i < 3; i++) {
-            int count = bg_range / steps[i];
-            if (count >= 1 && count <= 3) return steps[i];
-        }
-        return 50;
-    } else {
-        /* mg/dL mode */
-        static const int steps[] = {10, 20, 25, 50, 100};
-        for (int i = 0; i < 5; i++) {
-            int count = bg_range / steps[i];
-            if (count >= 1 && count <= 3) return steps[i];
-        }
-        return 100;
-    }
-}
-
-/**
  * Draw a grid line label at the top of the chart.
  */
 static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
@@ -162,47 +135,26 @@ static void draw_grid_label(GContext *ctx, int bg, int min_bg, int bg_range) {
 
 /**
  * Draw the vertical value-reference grid lines with labels at the top.
- * Includes one fixed clinical threshold line (solid) and dynamic dotted lines.
+ * Uses 5 fixed values: 0, 4, 10, 15, 20 (mmol/L) or 0, 72, 180, 270, 360 (mg/dL).
+ * The clinical threshold at 4.0 mmol/L (72 mg/dL) is drawn as a solid line.
  */
 static void draw_value_grid(GContext *ctx, int min_bg, int bg_range) {
-    int max_bg = min_bg + bg_range;
+    /* Fixed grid values */
+    static const int mmol_grid[] = {0, 40, 100, 150, 200};
+    static const int mgdl_grid[] = {0, 72, 180, 270, 360};
+    const int *grid = s_is_mmol ? mmol_grid : mgdl_grid;
+    int threshold = s_is_mmol ? 40 : 72;  /* 4.0 mmol/L or 72 mg/dL */
 
-    /* Fixed clinical threshold: 4.0 mmol/L (72 mg/dL) if in range, else 3.0 (54) */
-    int threshold;
-    if (s_is_mmol) {
-        threshold = (40 >= min_bg && 40 <= max_bg) ? 40 : 30;
-    } else {
-        threshold = (72 >= min_bg && 72 <= max_bg) ? 72 : 54;
-    }
-
-    /* Draw fixed threshold as solid line */
-    {
-        int x = bg_to_x(threshold, min_bg, bg_range);
-        if (x_in_bounds(x)) {
-            draw_solid_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
-            draw_grid_label(ctx, threshold, min_bg, bg_range);
-        }
-    }
-
-    /* Dynamic grid lines */
-    int step = choose_grid_step(bg_range);
-    int first = ((min_bg / step) + 1) * step;
-    int close_dist = bg_range / 20;  /* 5% of range */
-    if (close_dist < 1) close_dist = 1;
-
-    int drawn = 0;
-    for (int bg = first; bg < max_bg && drawn < 3; bg += step) {
-        /* Skip if too close to the fixed threshold */
-        int diff = bg - threshold;
-        if (diff < 0) diff = -diff;
-        if (diff < close_dist) continue;
-
-        int x = bg_to_x(bg, min_bg, bg_range);
+    for (int i = 0; i < 5; i++) {
+        int x = bg_to_x(grid[i], min_bg, bg_range);
         if (!x_in_bounds(x)) continue;
 
-        draw_dotted_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
-        draw_grid_label(ctx, bg, min_bg, bg_range);
-        drawn++;
+        if (grid[i] == threshold) {
+            draw_solid_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
+        } else {
+            draw_dotted_vline(ctx, x, CHART_START_Y, CHART_START_Y + CHART_HEIGHT);
+        }
+        draw_grid_label(ctx, grid[i], min_bg, bg_range);
     }
 }
 
@@ -329,6 +281,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     /* Place min label toward lower-value side (left) */
     min_lx = min_px - label_w - OFFSET;
     if (min_lx < CHART_START_X) min_lx = min_px + OFFSET;
+    if (min_lx + label_w > right_edge) min_lx = right_edge - label_w;
     min_ly = min_py - label_h / 2;
 
     /* --- maximum label position --- */
@@ -339,6 +292,7 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
     /* Place max label toward higher-value side (right) */
     max_lx = max_px + OFFSET;
     if (max_lx + label_w > right_edge) max_lx = max_px - label_w - OFFSET;
+    if (max_lx < CHART_START_X) max_lx = CHART_START_X;
     max_ly = max_py - label_h / 2;
 
     #undef OFFSET
@@ -369,13 +323,19 @@ static void draw_extremum_labels(GContext *ctx, int min_bg, int bg_range) {
         }
     }
 
-    /* Clamp both labels to the chart area */
-    if (min_ly < 0) min_ly = 0;
-    if (min_ly + label_h > CHART_START_Y + CHART_HEIGHT)
-        min_ly = CHART_START_Y + CHART_HEIGHT - label_h;
-    if (max_ly < 0) max_ly = 0;
-    if (max_ly + label_h > CHART_START_Y + CHART_HEIGHT)
-        max_ly = CHART_START_Y + CHART_HEIGHT - label_h;
+    /* Clamp both labels to the visible chart area (below grid labels) */
+    int top_limit = CHART_START_Y;  /* avoid overlapping grid labels at top */
+    int bot_limit = CHART_START_Y + CHART_HEIGHT - label_h;
+
+    if (min_ly < top_limit) min_ly = top_limit;
+    if (min_ly > bot_limit) min_ly = bot_limit;
+    if (max_ly < top_limit) max_ly = top_limit;
+    if (max_ly > bot_limit) max_ly = bot_limit;
+
+    /* --- draw bolder dots at extremum points --- */
+    graphics_context_set_fill_color(ctx, GColorBlack);
+    graphics_fill_circle(ctx, GPoint(min_px, min_py), 4);
+    graphics_fill_circle(ctx, GPoint(max_px, max_py), 4);
 
     /* --- draw minimum label --- */
     graphics_context_set_text_color(ctx, GColorBlack);
@@ -422,25 +382,14 @@ static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
         return;
     }
 
-    /* Auto-scale: find min/max BG values from readings */
-    int data_min = s_readings[0].value;
-    int data_max = s_readings[0].value;
-    for (int i = 1; i < s_reading_count; i++) {
-        if (s_readings[i].value < data_min) data_min = s_readings[i].value;
-        if (s_readings[i].value > data_max) data_max = s_readings[i].value;
-    }
-
-    /* Add padding */
-    int min_bg = data_min - BG_PADDING;
-    int max_bg = data_max + BG_PADDING;
-
-    /* Enforce minimum visible range */
-    int bg_range = max_bg - min_bg;
-    if (bg_range < BG_MIN_RANGE) {
-        int center = (min_bg + max_bg) / 2;
-        min_bg = center - BG_MIN_RANGE / 2;
-        max_bg = center + BG_MIN_RANGE / 2;
-        bg_range = max_bg - min_bg;
+    /* Fixed scale: 0–20 mmol/L (internal 0–200) or 0–360 mg/dL */
+    int min_bg, bg_range;
+    if (s_is_mmol) {
+        min_bg   = 0;    /* 0.0 mmol/L */
+        bg_range = 200;  /* up to 20.0 mmol/L (internal ×10) */
+    } else {
+        min_bg   = 0;    /* 0 mg/dL */
+        bg_range = 360;  /* up to 360 mg/dL */
     }
 
     draw_value_grid(ctx, min_bg, bg_range);
