@@ -5,10 +5,12 @@ var clay = new Clay(clayConfig);
 
 var appSettings = {};
 var MMOL_CONVERSION_FACTOR = 18.0182;
+/* Sized larger than MAX_READINGS so all readings always fit in one chunk */
 var MAX_READINGS_PER_CHUNK = 316;
 var MAX_READINGS = 36;
 var CACHE_KEY = 'glucose_cache';
 var CACHE_DURATION = 10800; /* 3 hours in seconds */
+var isFetchInProgress = false;
 
 /**
  * Load settings from local storage
@@ -128,6 +130,11 @@ function encodeReadingsToBytes(values, timestamps) {
 function sendGlucoseData(cache) {
     if (!cache || cache.length === 0) {
         console.log('No readings to send');
+        Pebble.sendAppMessage({ 'BG_COUNT': 0, 'BG_UNITS': appSettings.BG_UNITS || 'mg/dL' }, function() {
+            isFetchInProgress = false;
+        }, function() {
+            isFetchInProgress = false;
+        });
         return;
     }
 
@@ -157,6 +164,7 @@ function sendGlucoseData(cache) {
         sendChunks(values, timestamps, 0, 0);
     }, function(e) {
         console.error('Failed to send BG count: ' + (e && e.error ? e.error.message : 'unknown'));
+        isFetchInProgress = false;
     });
 }
 
@@ -166,6 +174,7 @@ function sendGlucoseData(cache) {
 function sendChunks(values, timestamps, startIndex, retries) {
     if (startIndex >= values.length) {
         console.log('All data sent successfully');
+        isFetchInProgress = false;
         return;
     }
 
@@ -193,6 +202,7 @@ function sendChunks(values, timestamps, startIndex, retries) {
             }, 500);
         } else {
             console.error('Max retries reached for chunk at index ' + startIndex);
+            isFetchInProgress = false;
         }
     });
 }
@@ -201,10 +211,21 @@ function sendChunks(values, timestamps, startIndex, retries) {
  * Fetch glucose readings from Dexcom
  */
 function fetchGlucoseData() {
+    if (isFetchInProgress) {
+        console.log('Fetch already in progress, skipping');
+        return;
+    }
+    isFetchInProgress = true;
+
     console.log('Fetching glucose data...');
 
     if (!appSettings.DEX_LOGIN || !appSettings.DEX_PASSWORD) {
         console.error('No Dexcom credentials configured');
+        Pebble.sendAppMessage({ 'BG_COUNT': 0, 'BG_UNITS': appSettings.BG_UNITS || 'mg/dL' }, function() {
+            isFetchInProgress = false;
+        }, function() {
+            isFetchInProgress = false;
+        });
         return;
     }
 
@@ -239,7 +260,15 @@ function fetchGlucoseData() {
             /* Send to watch */
             sendGlucoseData(cache);
         },
-        appSettings.DEX_REGION || 'ous'
+        appSettings.DEX_REGION || 'ous',
+        function(error) {
+            console.error('Dexcom fetch failed: ' + error);
+            Pebble.sendAppMessage({ 'BG_COUNT': 0, 'BG_UNITS': appSettings.BG_UNITS || 'mg/dL' }, function() {
+                isFetchInProgress = false;
+            }, function() {
+                isFetchInProgress = false;
+            });
+        }
     );
 
     /* Restore session if available */
@@ -266,6 +295,11 @@ function fetchGlucoseData() {
         }
     } catch (error) {
         console.error('Error fetching glucose: ' + error.message);
+        Pebble.sendAppMessage({ 'BG_COUNT': 0, 'BG_UNITS': appSettings.BG_UNITS || 'mg/dL' }, function() {
+            isFetchInProgress = false;
+        }, function() {
+            isFetchInProgress = false;
+        });
     }
 }
 
