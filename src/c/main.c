@@ -461,7 +461,7 @@ static void draw_no_data_message(GContext *ctx) {
  * --------------------------------------------------------------------------- */
 
 static void chart_layer_update_proc(Layer *layer, GContext *ctx) {
-    if (s_reading_count == 0) {
+    if (s_reading_count == 0 && s_receiving_data) {
         draw_no_data_message(ctx);
         return;
     }
