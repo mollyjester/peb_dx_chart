@@ -349,6 +349,7 @@ Dexcom.prototype._fetchGlucoseReadings = function(minutes, maxCount) {
                     self._handleServerError(JSON.parse(req.responseText), minutes, maxCount);
                 } else {
                     console.error('Failed to get readings: ' + req.status);
+                    if (self.onError) self.onError('Failed to get readings: ' + req.status);
                 }
             } catch (error) {
                 console.error('Error processing response: ' + error.message);
@@ -392,7 +393,8 @@ Dexcom.prototype._fetchGlucoseReadings = function(minutes, maxCount) {
  */
 Dexcom.prototype._handleGlucoseResponse = function(readings) {
     if (!Array.isArray(readings) || readings.length === 0) {
-        console.error('No readings available');
+        console.log('No readings available');
+        this.onResults([]);
         return;
     }
 
