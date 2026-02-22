@@ -348,8 +348,8 @@ Dexcom.prototype._fetchGlucoseReadings = function(minutes, maxCount) {
                 } else if (req.status === 500) {
                     self._handleServerError(JSON.parse(req.responseText), minutes, maxCount);
                 } else {
-                    console.error('Failed to get readings: ' + req.status);
-                    if (self.onError) self.onError('Failed to get readings: ' + req.status);
+                    console.error('Failed to get readings: HTTP ' + req.status);
+                    if (self.onError) self.onError('Unable to retrieve glucose readings from Dexcom server');
                 }
             } catch (error) {
                 console.error('Error processing response: ' + error.message);
