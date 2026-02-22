@@ -29,6 +29,9 @@
 #define APPMESSAGE_INBOX  2048
 #define APPMESSAGE_OUTBOX  128
 
+/* Transfer timeout: reset receiving state if chunks stop arriving */
+#define TRANSFER_TIMEOUT_MS  10000
+
 /* Bytes per reading in bulk transfer */
 #define BYTES_PER_READING   6
 
@@ -50,10 +53,22 @@ static int  s_received_count  = 0;
 static bool s_receiving_data  = true;
 static bool s_is_mmol         = false;
 static char s_bg_units[10]    = "mg/dL";
+static AppTimer *s_transfer_timeout_timer = NULL;
 
 /* Forward declarations */
 static void update_chart(void);
 static void request_data(void);
+
+/** Handle transfer timeout expiration by resetting receiving state. */
+static void transfer_timeout_callback(void *context) {
+    s_transfer_timeout_timer = NULL;
+    if (s_receiving_data) {
+        APP_LOG(APP_LOG_LEVEL_WARNING, "Transfer timeout: resetting receiving state");
+        s_receiving_data = false;
+        s_reading_count  = 0;
+        update_chart();
+    }
+}
 
 /* ---------------------------------------------------------------------------
  * Chart-drawing helpers
@@ -501,8 +516,6 @@ static void inbox_received_callback(DictionaryIterator *iterator,
     Tuple *units_tuple     = dict_find(iterator, MESSAGE_KEY_BG_UNITS);
     Tuple *index_tuple     = dict_find(iterator, MESSAGE_KEY_BG_INDEX);
     Tuple *chunk_tuple     = dict_find(iterator, MESSAGE_KEY_BG_CHUNK);
-    Tuple *value_tuple     = dict_find(iterator, MESSAGE_KEY_BG_VALUE);
-    Tuple *timestamp_tuple = dict_find(iterator, MESSAGE_KEY_BG_TIMESTAMP);
 
     if (units_tuple) {
         snprintf(s_bg_units, sizeof(s_bg_units), "%s",
@@ -512,11 +525,27 @@ static void inbox_received_callback(DictionaryIterator *iterator,
 
     if (count_tuple) {
         int count = count_tuple->value->int32;
+        if (count == 0) {
+            /* Phone signalled no data available */
+            if (s_transfer_timeout_timer) {
+                app_timer_cancel(s_transfer_timeout_timer);
+                s_transfer_timeout_timer = NULL;
+            }
+            s_receiving_data = false;
+            s_reading_count  = 0;
+            update_chart();
+            return;
+        }
         if (count > MAX_READINGS) count = MAX_READINGS;
         s_expected_count = count;
         s_received_count = 0;
         s_receiving_data = true;
         memset(s_readings, 0, sizeof(s_readings));
+        if (s_transfer_timeout_timer) {
+            app_timer_cancel(s_transfer_timeout_timer);
+        }
+        s_transfer_timeout_timer = app_timer_register(TRANSFER_TIMEOUT_MS,
+                                                       transfer_timeout_callback, NULL);
         return;
     }
 
@@ -540,27 +569,15 @@ static void inbox_received_callback(DictionaryIterator *iterator,
         }
 
         if (s_received_count >= s_expected_count) {
-            s_reading_count = s_expected_count;
+            if (s_transfer_timeout_timer) {
+                app_timer_cancel(s_transfer_timeout_timer);
+                s_transfer_timeout_timer = NULL;
+            }
+            s_reading_count  = s_expected_count;
             s_receiving_data = false;
             update_chart();
         }
         return;
-    }
-
-    /* Legacy per-reading path */
-    if (index_tuple && value_tuple && timestamp_tuple) {
-        int index = index_tuple->value->int32;
-        if (index >= 0 && index < MAX_READINGS) {
-            s_readings[index].value     = value_tuple->value->int16;
-            s_readings[index].timestamp = timestamp_tuple->value->int32;
-            s_received_count++;
-
-            if (s_received_count >= s_expected_count) {
-                s_reading_count = s_expected_count;
-                s_receiving_data = false;
-                update_chart();
-            }
-        }
     }
 }
 

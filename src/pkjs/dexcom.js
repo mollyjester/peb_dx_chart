@@ -38,8 +38,9 @@ var AppIDs = {
  * @param {string} password - Dexcom password
  * @param {Function} onResults - Callback on successful glucose fetch
  * @param {string} region - Region code (us, ous, jp)
+ * @param {Function} onError - Callback on fetch error (optional)
  */
-function Dexcom(username, password, onResults, region) {
+function Dexcom(username, password, onResults, region, onError) {
     this.username = username;
     this.password = password;
     this.region = (region || Regions.OUS).toLowerCase();
@@ -48,6 +49,7 @@ function Dexcom(username, password, onResults, region) {
     this.sessionId = null;
     this.accountId = null;
     this.onResults = onResults;
+    this.onError = onError || null;
 }
 
 /**
@@ -186,6 +188,7 @@ Dexcom.prototype.authenticate = function(callback) {
         }
     } catch (error) {
         console.error('Authentication error: ' + error.message);
+        if (this.onError) this.onError('Authentication error: ' + error.message);
     }
 };
 
@@ -207,13 +210,25 @@ Dexcom.prototype._getAccountId = function(callback) {
 
             if (self.accountId === '00000000-0000-0000-0000-000000000000') {
                 console.error('Invalid credentials');
+                if (self.onError) self.onError('Invalid credentials');
                 return;
             }
 
             callback.call(self);
         } else {
             console.error('Error fetching account ID: ' + req.status);
+            if (self.onError) self.onError('Error fetching account ID: ' + req.status);
         }
+    };
+
+    req.onerror = function() {
+        console.error('Network error fetching account ID');
+        if (self.onError) self.onError('Network error fetching account ID');
+    };
+
+    req.ontimeout = function() {
+        console.error('Timeout fetching account ID');
+        if (self.onError) self.onError('Timeout fetching account ID');
     };
 
     req.send(JSON.stringify({
@@ -246,23 +261,27 @@ Dexcom.prototype._getSessionId = function(callback) {
 
             if (self.sessionId === '00000000-0000-0000-0000-000000000000') {
                 console.error('Login failed');
+                if (self.onError) self.onError('Login failed');
                 return;
             }
 
             callback.call(self);
         } else {
             console.error('Error fetching session ID: ' + loginReq.status);
+            if (self.onError) self.onError('Error fetching session ID: ' + loginReq.status);
         }
     };
 
     loginReq.onerror = function() {
         if (timeoutHandle) clearTimeout(timeoutHandle);
         console.error('Network error fetching session ID');
+        if (self.onError) self.onError('Network error fetching session ID');
     };
 
     loginReq.ontimeout = function() {
         if (timeoutHandle) clearTimeout(timeoutHandle);
         console.error('Timeout fetching session ID (15s)');
+        if (self.onError) self.onError('Timeout fetching session ID');
     };
 
     // Fallback timeout using setTimeout for better compatibility
@@ -339,11 +358,13 @@ Dexcom.prototype._fetchGlucoseReadings = function(minutes, maxCount) {
         req.onerror = function() {
             if (timeoutHandle) clearTimeout(timeoutHandle);
             console.error('Network error fetching glucose readings');
+            if (self.onError) self.onError('Network error fetching glucose readings');
         };
 
         req.ontimeout = function() {
             if (timeoutHandle) clearTimeout(timeoutHandle);
             console.error('Timeout fetching glucose readings (15s)');
+            if (self.onError) self.onError('Timeout fetching glucose readings');
         };
 
         // Fallback timeout using setTimeout for better compatibility
@@ -361,6 +382,7 @@ Dexcom.prototype._fetchGlucoseReadings = function(minutes, maxCount) {
         }));
     } catch (error) {
         console.error('Error fetching glucose: ' + error.message);
+        if (self.onError) self.onError('Error fetching glucose: ' + error.message);
     }
 };
 
@@ -408,10 +430,12 @@ Dexcom.prototype._handleServerError = function(error, minutes, maxCount) {
         } else {
             console.error('Session error: ' + error.Code + ', max retries reached (' + this.retryCount + ')');
             this.retryCount = 0;
+            if (this.onError) this.onError('Session error: ' + error.Code + ', max retries reached');
         }
     } else {
         this.retryCount = 0;
         console.error('Server error: ' + error.Message);
+        if (this.onError) this.onError('Server error: ' + error.Message);
     }
 };
 
