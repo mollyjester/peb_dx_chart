@@ -289,7 +289,7 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range,
         if (y >= CHART_START_Y + GRID_PADDING &&
             y <= CHART_START_Y + CHART_HEIGHT - GRID_PADDING) {
             graphics_context_set_fill_color(ctx, GColorBlack);
-            graphics_fill_circle(ctx, GPoint(x, y), 2);
+            graphics_fill_circle(ctx, GPoint(x, y), 1);
         }
     }
 }
