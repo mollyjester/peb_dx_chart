@@ -31,8 +31,7 @@
       "BG_DATA",
       "BG_COUNT",
       "BG_INDEX",
-      "BG_CHUNK",
-      "SHOW_LINE"
+      "BG_CHUNK"
     ],
     "resources": {
       "media": []

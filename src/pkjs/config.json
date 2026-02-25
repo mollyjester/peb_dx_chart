@@ -76,12 +76,6 @@
             "value": "mmol/L"
           }
         ]
-      },
-      {
-        "type": "toggle",
-        "messageKey": "SHOW_LINE",
-        "label": "Connect dots with line",
-        "defaultValue": true
       }
     ]
   },

@@ -154,13 +154,10 @@ function sendGlucoseData(cache) {
     console.log('First reading: ' + values[0] / 10 + ' ' + bgUnits + ' at ' + new Date(timestamps[0] * 1000));
     console.log('Last reading: ' + values[count - 1] / 10 + ' ' + bgUnits + ' at ' + new Date(timestamps[count - 1] * 1000));
 
-    var showLine = (appSettings.SHOW_LINE !== false) ? 1 : 0;
-
     /* Send header first */
     Pebble.sendAppMessage({
         'BG_COUNT': count,
-        'BG_UNITS': bgUnits,
-        'SHOW_LINE': showLine
+        'BG_UNITS': bgUnits
     }, function() {
         console.log('Sent BG count: ' + count);
         /* Send chunks after header ACK */
