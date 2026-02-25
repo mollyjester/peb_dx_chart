@@ -52,6 +52,7 @@ static int  s_expected_count  = 0;
 static int  s_received_count  = 0;
 static bool s_receiving_data  = true;
 static bool s_is_mmol         = false;
+static bool s_show_line       = true;
 static char s_bg_units[10]    = "mg/dL";
 static AppTimer *s_transfer_timeout_timer = NULL;
 
@@ -274,7 +275,7 @@ static void draw_glucose_line(GContext *ctx, int min_bg, int bg_range,
 
         /* Draw line segment to the next (older) reading unless there is a
            gap larger than MAX_GAP_SECONDS between them. */
-        if (i < s_reading_count - 1) {
+        if (s_show_line && i < s_reading_count - 1) {
             int gap = (int)(s_readings[i].timestamp -
                             s_readings[i + 1].timestamp);
             if (gap <= MAX_GAP_SECONDS) {
@@ -516,11 +517,17 @@ static void inbox_received_callback(DictionaryIterator *iterator,
     Tuple *units_tuple     = dict_find(iterator, MESSAGE_KEY_BG_UNITS);
     Tuple *index_tuple     = dict_find(iterator, MESSAGE_KEY_BG_INDEX);
     Tuple *chunk_tuple     = dict_find(iterator, MESSAGE_KEY_BG_CHUNK);
+    Tuple *show_line_tuple = dict_find(iterator, MESSAGE_KEY_SHOW_LINE);
 
     if (units_tuple) {
         snprintf(s_bg_units, sizeof(s_bg_units), "%s",
                  units_tuple->value->cstring);
         s_is_mmol = (strcmp(s_bg_units, "mmol/L") == 0);
+    }
+
+    if (show_line_tuple) {
+        s_show_line = (show_line_tuple->value->int32 != 0);
+        update_chart();
     }
 
     if (count_tuple) {
